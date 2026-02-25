@@ -3,6 +3,7 @@ import logo from './logo.png'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 const apiUrl = (path) => `${API_BASE}${path}`
+const BETININHO_AVATAR = '/data/betininho.png'
 
 function formatNick(nick = '') {
   return /^\d{8,}$/.test(nick) ? `Player-${nick.slice(-4)}` : nick
@@ -14,6 +15,35 @@ function normalizeMapKey(mapName) {
     .trim()
     .replace(/^workshop\/\d+\//, '')
     .replace(/\s+/g, '')
+}
+
+function placeToRadarPoint(mapKey, placeRaw) {
+  const place = String(placeRaw ?? '').trim()
+  if (!place) return null
+
+  const mirage = {
+    CTSpawn: { xPct: 14, yPct: 22 },
+    TSpawn: { xPct: 22, yPct: 92 },
+    BombsiteA: { xPct: 30, yPct: 64 },
+    BombsiteB: { xPct: 82, yPct: 38 },
+    PalaceInterior: { xPct: 36, yPct: 92 },
+    PalaceAlley: { xPct: 24, yPct: 84 },
+    TRamp: { xPct: 20, yPct: 72 },
+    Apartments: { xPct: 86, yPct: 66 },
+    Catwalk: { xPct: 64, yPct: 52 },
+    Connector: { xPct: 52, yPct: 57 },
+    Jungle: { xPct: 45, yPct: 64 },
+    Stairs: { xPct: 39, yPct: 69 },
+    SnipersNest: { xPct: 50, yPct: 44 },
+    TopofMid: { xPct: 58, yPct: 46 },
+    Middle: { xPct: 58, yPct: 52 },
+    Underpass: { xPct: 48, yPct: 64 },
+  }
+
+  const byMap = {
+    de_mirage: mirage,
+  }
+  return byMap[mapKey]?.[place] ?? null
 }
 
 function normalizeParsedMatch(payload) {
@@ -287,6 +317,7 @@ function Dashboard({ data, analysis, onReset }) {
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedRoundNumber, setSelectedRoundNumber] = useState(1)
   const [showPrepItems, setShowPrepItems] = useState(false)
+  const [showRoundBetininho, setShowRoundBetininho] = useState(false)
   const [betQuestion, setBetQuestion] = useState('')
   const [betLoading, setBetLoading] = useState(false)
   const [betMessages, setBetMessages] = useState([
@@ -318,6 +349,14 @@ function Dashboard({ data, analysis, onReset }) {
   const selectedRound = useMemo(
     () => data.rounds.find((round) => round.round_number === selectedRoundNumber) ?? data.rounds[0] ?? null,
     [data, selectedRoundNumber],
+  )
+  const roundsOrdered = useMemo(
+    () => [...data.rounds].sort((a, b) => a.round_number - b.round_number),
+    [data],
+  )
+  const selectedRoundIndex = useMemo(
+    () => roundsOrdered.findIndex((r) => r.round_number === selectedRoundNumber),
+    [roundsOrdered, selectedRoundNumber],
   )
   const mvp = allPlayers[0]
   const tabs = [
@@ -564,6 +603,7 @@ function Dashboard({ data, analysis, onReset }) {
   }
   const roundRadarMarkers = useMemo(() => {
     if (!selectedRound) return []
+    const mapKey = normalizeMapKey(data?.match_info?.map ?? data?.meta?.map ?? '')
     const labelFromId = (steamId) => {
       if (!steamId) return '-'
       return playerNameBySteamId.get(String(steamId)) ?? `Player-${String(steamId).slice(-4)}`
@@ -586,6 +626,7 @@ function Dashboard({ data, analysis, onReset }) {
           kind: 'kill',
           x: Number(event.killer_position.x),
           y: Number(event.killer_position.y),
+          place: event.killer_position.place,
           label: `${labelFromId(event.killer_steamid)} x ${labelFromId(event.victim_steamid)}${event.killer_position.place ? ` @ ${event.killer_position.place}` : ''}`,
         })
       } else if (
@@ -599,6 +640,7 @@ function Dashboard({ data, analysis, onReset }) {
           kind: event.event === 'bomb_planted' ? 'plant' : (event.event === 'bomb_defused' ? 'defuse' : 'explode'),
           x: Number(event.position.x),
           y: Number(event.position.y),
+          place: event.position.place,
           label: `${bombLabel(event)}${event.position.place ? ` @ ${event.position.place}` : ''}`,
         })
       }
@@ -617,15 +659,18 @@ function Dashboard({ data, analysis, onReset }) {
     const spanY = Math.max(1, maxY - minY)
 
     return valid.map((p) => {
-      const xPct = ((p.x - minX) / spanX) * 100
-      const yPct = 100 - (((p.y - minY) / spanY) * 100)
+      const placePoint = placeToRadarPoint(mapKey, p.place)
+      const xPctRaw = ((p.x - minX) / spanX) * 100
+      const yPctRaw = 100 - (((p.y - minY) / spanY) * 100)
+      const xPct = placePoint?.xPct ?? xPctRaw
+      const yPct = placePoint?.yPct ?? yPctRaw
       return {
         ...p,
-        xPct: Math.max(4, Math.min(96, xPct)),
-        yPct: Math.max(4, Math.min(96, yPct)),
+        xPct: Math.max(7, Math.min(93, xPct)),
+        yPct: Math.max(7, Math.min(93, yPct)),
       }
     })
-  }, [selectedRound, playerNameBySteamId, roundLiveEvents])
+  }, [selectedRound, playerNameBySteamId, roundLiveEvents, data])
   const visibleRadarMarkers = useMemo(() => {
     const hasSelected = selectedRadarEventKey && roundRadarMarkers.some((m) => m.eventKey === selectedRadarEventKey)
     if (!hasSelected) return roundRadarMarkers
@@ -701,6 +746,28 @@ function Dashboard({ data, analysis, onReset }) {
     } finally {
       setBetLoading(false)
     }
+  }
+  const getRoundBetininhoTip = () => {
+    if (!selectedRound) return 'Sem rodada selecionada.'
+    const first = roundInsights.firstKill ? getPlayerLabel(roundInsights.firstKill.killer_steamid) : 'N/A'
+    const tradeText = roundInsights.entryTrade ? 'entry foi tradada' : 'faltou trade na entry'
+    const clutchText = roundInsights.clutchLevel > 0 ? `atenção ao clutch 1v${roundInsights.clutchLevel}` : 'sem clutch vencedor'
+    const hsText = `${roundInsights.hsCount} HS no round`
+    return `Round ${selectedRound.round_number}: first kill de ${first}, ${tradeText}, ${clutchText}. ${hsText}.`
+  }
+  const handlePrevRound = () => {
+    if (selectedRoundIndex <= 0) return
+    const prevRound = roundsOrdered[selectedRoundIndex - 1]
+    if (!prevRound) return
+    setSelectedRoundNumber(prevRound.round_number)
+    setSelectedRadarEventKey(null)
+  }
+  const handleNextRound = () => {
+    if (selectedRoundIndex < 0 || selectedRoundIndex >= roundsOrdered.length - 1) return
+    const nextRound = roundsOrdered[selectedRoundIndex + 1]
+    if (!nextRound) return
+    setSelectedRoundNumber(nextRound.round_number)
+    setSelectedRadarEventKey(null)
   }
 
   return (
@@ -800,7 +867,32 @@ function Dashboard({ data, analysis, onReset }) {
           {activeTab === 'rounds' && (
             <div className="panel-stack">
               <section className="panel-block">
-              <h3>Timeline de rodadas</h3>
+              <div className="round-nav-bar">
+                <h3>Timeline de rodadas</h3>
+                <div className="round-nav-controls">
+                  <button
+                    type="button"
+                    className="round-arrow-btn"
+                    onClick={handlePrevRound}
+                    disabled={selectedRoundIndex <= 0}
+                    title="Rodada anterior"
+                  >
+                    ◀
+                  </button>
+                  <span className="round-nav-label">
+                    {selectedRound ? `Round ${selectedRound.round_number}/${roundsOrdered.length}` : '-'}
+                  </span>
+                  <button
+                    type="button"
+                    className="round-arrow-btn"
+                    onClick={handleNextRound}
+                    disabled={selectedRoundIndex < 0 || selectedRoundIndex >= roundsOrdered.length - 1}
+                    title="Próxima rodada"
+                  >
+                    ▶
+                  </button>
+                </div>
+              </div>
               <div className="rounds">
                 {data.rounds.map((round) => (
                   <button
@@ -922,6 +1014,13 @@ function Dashboard({ data, analysis, onReset }) {
                             <span>K {roundKills.length}</span>
                             <span>HS {roundInsights.hsCount}</span>
                             <span>TRD {roundInsights.tradeCount}</span>
+                            <button
+                              className={`feed-toggle-btn ${showRoundBetininho ? 'active' : ''}`}
+                              type="button"
+                              onClick={() => setShowRoundBetininho((v) => !v)}
+                            >
+                              Betininho
+                            </button>
                             <button className={`feed-toggle-btn ${showPrepItems ? 'active' : ''}`} type="button" onClick={() => setShowPrepItems((v) => !v)}>
                               Itens
                             </button>
@@ -930,6 +1029,12 @@ function Dashboard({ data, analysis, onReset }) {
                             </button>
                           </div>
                           <div className="round-feed-live">
+                            {showRoundBetininho && (
+                              <article className="round-betininho-card">
+                                <img src={BETININHO_AVATAR} alt="Betininho PRO" className="round-betininho-avatar" />
+                                <p>{getRoundBetininhoTip()}</p>
+                              </article>
+                            )}
                             {showPrepItems && preRoundLoadoutRows.length > 0 && (
                               <div className="prep-events">
                                 {preRoundLoadoutRows.map((row) => (
@@ -1070,7 +1175,14 @@ function Dashboard({ data, analysis, onReset }) {
                 )}
                 <section className="betininho-card">
                   <div className="betininho-head">
-                    <h4>Betininho PRO</h4>
+                    <div className="betininho-hero">
+                      <div className="betininho-avatar-wrap">
+                        <img src={BETININHO_AVATAR} alt="Betininho PRO" className="betininho-avatar" />
+                      </div>
+                      <div className="betininho-title-wrap">
+                        <h4>Betininho PRO</h4>
+                      </div>
+                    </div>
                     <span className="dim">Perguntas táticas da partida</span>
                   </div>
                   <div className="betininho-chat">

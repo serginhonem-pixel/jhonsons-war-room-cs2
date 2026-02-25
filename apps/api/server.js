@@ -1,5 +1,8 @@
+import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
+import process from 'node:process'
+import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { parseDemoBuffer } from '../../packages/parser/index.js'
@@ -72,6 +75,5 @@ app.post('/api/betininho-pro', async (req, res) => {
 })
 
 app.listen(port, () => {
-  // eslint-disable-next-line no-console
   console.log(`API pronta em http://localhost:${port}`)
 })
