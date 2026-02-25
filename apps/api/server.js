@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { parseDemoBuffer } from '../../packages/parser/index.js'
 import { buildAnalysisReport } from '../../packages/analytics/index.js'
 import { matchSchema } from '../../packages/shared-types/matchSchema.js'
+import { askBetininhoPro } from './services/betininho.js'
 
 const require = createRequire(import.meta.url)
 const { parseHeader, parseEvents, parseEvent, parseTicks } = require('@laihoe/demoparser2')
@@ -49,6 +50,25 @@ app.post('/api/analyze', (req, res) => {
 
   const report = buildAnalysisReport(parsed.data)
   return res.json(report)
+})
+
+app.post('/api/betininho-pro', async (req, res) => {
+  const parsed = matchSchema.safeParse(req.body?.match)
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Payload de partida invalido para Betininho PRO.' })
+  }
+
+  const question = String(req.body?.question ?? '').trim()
+  if (!question) {
+    return res.status(400).json({ error: 'Pergunta vazia.' })
+  }
+
+  try {
+    const result = await askBetininhoPro(parsed.data, question)
+    return res.json(result)
+  } catch (error) {
+    return res.status(500).json({ error: error?.message ?? 'Falha no Betininho PRO.' })
+  }
 })
 
 app.listen(port, () => {

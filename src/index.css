@@ -444,6 +444,76 @@ button:hover {
   margin: 0;
 }
 
+.insights-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.betininho-card {
+  border: 1px solid rgba(123, 159, 227, 0.24);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(8, 16, 31, 0.5);
+}
+
+.betininho-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.betininho-head h4 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.betininho-chat {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.bet-bubble {
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  border: 1px solid rgba(123, 159, 227, 0.2);
+}
+
+.bet-bubble.user {
+  justify-self: end;
+  background: rgba(37, 77, 143, 0.78);
+  border-color: rgba(118, 159, 230, 0.7);
+  max-width: 78%;
+}
+
+.bet-bubble.assistant {
+  justify-self: start;
+  background: rgba(13, 25, 47, 0.88);
+  max-width: 92%;
+}
+
+.betininho-input {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.betininho-input input {
+  border: 1px solid rgba(123, 159, 227, 0.4);
+  background: rgba(7, 14, 28, 0.82);
+  color: #e8edf7;
+  border-radius: 8px;
+  padding: 9px 10px;
+  outline: none;
+}
+
 .round-metrics {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   margin-bottom: 10px;
@@ -1046,6 +1116,10 @@ button:hover {
     grid-template-columns: 1fr 1fr;
   }
 
+  .panel-block {
+    overflow: hidden;
+  }
+
   .tab-panel { max-height: none; }
 
   .round-warroom-grid {
@@ -1074,6 +1148,54 @@ button:hover {
     grid-column: 1 / -1;
     justify-content: flex-start;
     max-width: 100%;
+  }
+
+  .round-feed-side {
+    max-width: none;
+  }
+
+  .round-feed-stats {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .round-feed {
+    padding: 10px;
+  }
+
+  .round-warroom-top {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .alive-side,
+  .alive-side:last-child {
+    justify-content: center;
+  }
+
+  .eco-row {
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+  }
+
+  .kill-core {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .kill-core .kill-player:first-child,
+  .kill-core .kill-player:last-child {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .kill-icons {
+    justify-content: flex-start;
+  }
+
+  .kill-player {
+    font-size: 0.85rem;
   }
 }
 
@@ -1108,5 +1230,58 @@ button:hover {
   .tab-panel {
     max-height: none;
     min-height: 360px;
+  }
+
+  .quick-insights {
+    grid-template-columns: 1fr;
+  }
+
+  .round-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .rounds {
+    gap: 6px;
+  }
+
+  .round {
+    min-width: 30px;
+    padding: 5px 7px;
+    font-size: 0.72rem;
+  }
+
+  .round-feed-stats span,
+  .feed-play-btn,
+  .feed-toggle-btn {
+    font-size: 0.66rem;
+    padding: 3px 8px;
+  }
+
+  .killfeed-item.live {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 8px;
+    padding: 5px 6px;
+  }
+
+  .kill-time {
+    min-width: 44px;
+    font-size: 0.78rem;
+  }
+
+  .feed-tag {
+    font-size: 0.6rem;
+    padding: 2px 6px;
+  }
+
+  .map-radar-wrap {
+    max-width: 100%;
+  }
+
+  .betininho-input {
+    grid-template-columns: 1fr;
+  }
+
+  .betininho-input button {
+    width: 100%;
   }
 }

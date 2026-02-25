@@ -287,6 +287,11 @@ function Dashboard({ data, analysis, onReset }) {
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedRoundNumber, setSelectedRoundNumber] = useState(1)
   const [showPrepItems, setShowPrepItems] = useState(false)
+  const [betQuestion, setBetQuestion] = useState('')
+  const [betLoading, setBetLoading] = useState(false)
+  const [betMessages, setBetMessages] = useState([
+    { role: 'assistant', text: 'Betininho PRO online. Pergunta algo tático da partida.' },
+  ])
   const [selectedRadarEventKey, setSelectedRadarEventKey] = useState(null)
   const [animationState, setAnimationState] = useState({ roundKey: null, count: Number.POSITIVE_INFINITY, isAnimating: false })
   const animationTimerRef = useRef(null)
@@ -672,6 +677,32 @@ function Dashboard({ data, analysis, onReset }) {
     }, 220)
   }
 
+  const handleAskBetininho = async () => {
+    const question = betQuestion.trim()
+    if (!question || betLoading) return
+    setBetQuestion('')
+    setBetLoading(true)
+    setBetMessages((prev) => [...prev, { role: 'user', text: question }])
+    try {
+      const result = await askBetininho(data.raw ?? data, question)
+      const suffix = result?.mode === 'langchain' ? '' : ' (modo local sem custo)'
+      setBetMessages((prev) => [...prev, { role: 'assistant', text: `${result?.answer ?? 'Sem resposta.'}${suffix}` }])
+    } catch (error) {
+      const fallback = localBetininhoFallback(question, data, analysis)
+      const rawMessage = String(error?.message ?? 'falha ao consultar agente.')
+      const hint = rawMessage.toLowerCase().includes('failed to fetch')
+        ? 'API indisponível no momento. Verifique se `npm run dev` está ativo.'
+        : rawMessage
+      setBetMessages((prev) => [
+        ...prev,
+        { role: 'assistant', text: `${fallback} (fallback local)` },
+        { role: 'assistant', text: `Diagnóstico: ${hint}` },
+      ])
+    } finally {
+      setBetLoading(false)
+    }
+  }
+
   return (
     <div className="dashboard">
       <section className="hero card">
@@ -1010,32 +1041,61 @@ function Dashboard({ data, analysis, onReset }) {
           {activeTab === 'insights' && (
             <section className="panel-block">
               <h3>Insights Rapidos</h3>
-              {analysis ? (
-                <div className="quick-insights">
-                  <article>
-                    <p className="dim">Impacto</p>
-                    <h4>{analysis?.impact?.round_impact_score?.[0] ? formatNick(analysis.impact.round_impact_score[0].nick) : 'N/A'}</h4>
-                    <p>RIS {analysis?.impact?.round_impact_score?.[0]?.ris_match ?? 0}</p>
-                  </article>
-                  <article>
-                    <p className="dim">Trade</p>
-                    <h4>Tempo medio</h4>
-                    <p>{analysis?.trades?.avg_trade_time_s ?? 0}s</p>
-                  </article>
-                  <article>
-                    <p className="dim">Pressao</p>
-                    <h4>Rodadas chave</h4>
-                    <p>{analysis?.pressure?.length ?? 0}</p>
-                  </article>
-                  <article>
-                    <p className="dim">Economia</p>
-                    <h4>Buckets buy</h4>
-                    <p>{analysis?.economy?.length ?? 0}</p>
-                  </article>
-                </div>
-              ) : (
-                <p className="dim">Sem analise disponivel para esta partida.</p>
-              )}
+              <div className="insights-stack">
+                {analysis ? (
+                  <div className="quick-insights">
+                    <article>
+                      <p className="dim">Impacto</p>
+                      <h4>{analysis?.impact?.round_impact_score?.[0] ? formatNick(analysis.impact.round_impact_score[0].nick) : 'N/A'}</h4>
+                      <p>RIS {analysis?.impact?.round_impact_score?.[0]?.ris_match ?? 0}</p>
+                    </article>
+                    <article>
+                      <p className="dim">Trade</p>
+                      <h4>Tempo medio</h4>
+                      <p>{analysis?.trades?.avg_trade_time_s ?? 0}s</p>
+                    </article>
+                    <article>
+                      <p className="dim">Pressao</p>
+                      <h4>Rodadas chave</h4>
+                      <p>{analysis?.pressure?.length ?? 0}</p>
+                    </article>
+                    <article>
+                      <p className="dim">Economia</p>
+                      <h4>Buckets buy</h4>
+                      <p>{analysis?.economy?.length ?? 0}</p>
+                    </article>
+                  </div>
+                ) : (
+                  <p className="dim">Sem analise disponivel para esta partida, mas o Betininho PRO pode responder com base no match.</p>
+                )}
+                <section className="betininho-card">
+                  <div className="betininho-head">
+                    <h4>Betininho PRO</h4>
+                    <span className="dim">Perguntas táticas da partida</span>
+                  </div>
+                  <div className="betininho-chat">
+                    {betMessages.map((msg, idx) => (
+                      <div key={`bet-${idx}`} className={`bet-bubble ${msg.role}`}>
+                        {msg.text}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="betininho-input">
+                    <input
+                      type="text"
+                      value={betQuestion}
+                      onChange={(e) => setBetQuestion(e.target.value)}
+                      placeholder="Ex: Onde perdemos mais entry no lado CT?"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleAskBetininho()
+                      }}
+                    />
+                    <button type="button" onClick={handleAskBetininho} disabled={betLoading}>
+                      {betLoading ? 'Lendo...' : 'Perguntar'}
+                    </button>
+                  </div>
+                </section>
+              </div>
             </section>
           )}
 
@@ -1081,6 +1141,47 @@ async function analyzeMatch(matchRaw) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload?.error || 'Falha ao analisar partida.')
   return payload
+}
+
+async function askBetininho(matchRaw, question) {
+  const response = await fetch(apiUrl('/api/betininho-pro'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ match: matchRaw, question }),
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(payload?.error || 'Falha ao consultar Betininho PRO.')
+  return payload
+}
+
+function localBetininhoFallback(question, data, analysis) {
+  const q = String(question ?? '').toLowerCase()
+  const players = Array.isArray(data?.players) ? [...data.players] : []
+  const top = players.sort((a, b) => (b?.stats?.rating_2 ?? 0) - (a?.stats?.rating_2 ?? 0))[0]
+  const avgTrade = analysis?.trades?.avg_trade_time_s ?? 0
+
+  if (q.includes('entry') || q.includes('first kill')) {
+    const bestEntry = players
+      .map((p) => ({ nick: p.nick, delta: (p?.stats?.entry_kills ?? 0) - (p?.stats?.entry_deaths ?? 0), ek: p?.stats?.entry_kills ?? 0, ed: p?.stats?.entry_deaths ?? 0 }))
+      .sort((a, b) => b.delta - a.delta)[0]
+    if (!bestEntry) return 'Sem dados suficientes de entry para responder.'
+    return `Entry foco: ${bestEntry.nick} (saldo ${bestEntry.delta}, ${bestEntry.ek}/${bestEntry.ed}).`
+  }
+
+  if (q.includes('trade')) {
+    return `Trade atual em ${avgTrade}s. Objetivo competitivo: < 2.0s nas brigas chave.`
+  }
+
+  if (q.includes('economia') || q.includes('eco') || q.includes('buy')) {
+    return 'Recomendação: revisar rounds perdidos de full buy e rounds pós-loss streak para ajuste de protocolo.'
+  }
+
+  if (top) {
+    return `Resumo: destaque ${top.nick} (${top.stats.kills}/${top.stats.deaths}, ADR ${top.stats.adr.toFixed(1)}, Rating ${top.stats.rating_2.toFixed(2)}).`
+  }
+
+  return 'Consigo responder sobre entry, trade, economia e rounds chave desta partida.'
 }
 
 export default function Cs2App() {
