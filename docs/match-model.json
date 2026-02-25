@@ -1,0 +1,63 @@
+﻿{
+  "match_id": "uuid",
+  "meta": {
+    "map": "de_mirage",
+    "played_at": "2026-02-25T20:15:00Z",
+    "rounds_total": 24,
+    "final_score": { "ct": 13, "t": 11 },
+    "starting_side": "ct",
+    "source_file": "my_match.dem"
+  },
+  "players": [
+    {
+      "steam_id": "7656119...",
+      "nick": "Player",
+      "team": "team_ct_start",
+      "stats": {
+        "kills": 20,
+        "deaths": 16,
+        "assists": 7,
+        "adr": 84.1,
+        "hs_percent": 48.0,
+        "rating_2": 1.22,
+        "kast": 69.0,
+        "entry_kills": 5,
+        "entry_deaths": 3,
+        "flash_assists": 2,
+        "util_used": { "flash": 8, "smoke": 6, "molotov": 3, "he": 2 },
+        "clutches": { "1v1": 1, "1v2": 0, "1v3": 0, "1v4": 0, "1v5": 0 },
+        "multikills": { "2k": 4, "3k": 1, "4k": 0, "5k": 0 },
+        "time_to_first_action_avg_s": 11.3
+      }
+    }
+  ],
+  "rounds": [
+    {
+      "round_number": 1,
+      "winner": "team_ct_start",
+      "win_reason": "elimination",
+      "state_transitions": ["5v5", "5v4", "4v4", "4v3"],
+      "opening_advantage_team_id": "team_ct_start",
+      "timeline": [
+        {
+          "t_s": 18.2,
+          "tick": 1150,
+          "event": "kill",
+          "killer_steamid": "765...",
+          "victim_steamid": "765...",
+          "assister_steamid": "",
+          "killer_team": "team_ct_start",
+          "victim_team": "team_t_start",
+          "headshot": true,
+          "trade_of": null,
+          "post_plant": false,
+          "opening_kill": true
+        }
+      ],
+      "economy": {
+        "team_ct_start": { "equipment_value": 23120, "cash_spent": 19652, "buy_tier": "full" },
+        "team_t_start": { "equipment_value": 23120, "cash_spent": 19652, "buy_tier": "full" }
+      }
+    }
+  ]
+}
