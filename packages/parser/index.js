@@ -92,6 +92,13 @@ function mapTimelineEventName(rawName = '') {
   if (name === 'item_drop') return 'drop'
   if (name === 'bomb_planted') return 'bomb_planted'
   if (name === 'bomb_defused') return 'bomb_defused'
+  if (name === 'player_hurt') return 'hurt'
+  if (name === 'weapon_fire') return 'weapon_fire'
+  if (name === 'flashbang_detonate') return 'flashbang_detonate'
+  if (name === 'smokegrenade_detonate') return 'smokegrenade_detonate'
+  if (name === 'hegrenade_detonate') return 'hegrenade_detonate'
+  if (name === 'inferno_startburn') return 'inferno_startburn'
+  if (name === 'player_blind') return 'player_blind'
   return name
 }
 
@@ -285,7 +292,7 @@ function groupEvents(roundEvents, deathEvents, miscEvents = [], roundStartEvents
     if (round.start_tick === 0 && tick > 0) round.start_tick = tick
     else if (tick > 0) round.start_tick = Math.min(round.start_tick, tick)
     const eventType = mapTimelineEventName(event.event_name)
-    round.timeline.push({
+    const baseEvent = {
       t_s: tick > 0 ? tick / 64 : 0,
       tick,
       event: eventType,
@@ -294,7 +301,18 @@ function groupEvents(roundEvents, deathEvents, miscEvents = [], roundStartEvents
       ),
       player_team: normalizeTeam(pick(event, ['user_team_num', 'player_team', 'team_num'])),
       weapon: String(pick(event, ['weapon', 'weapon_name', 'weapon_item', 'item_name', 'item']) ?? ''),
-    })
+    }
+    if (eventType === 'hurt') {
+      baseEvent.attacker_steamid = String(pick(event, ['attacker_steamid', 'attacker']) ?? '')
+      baseEvent.victim_steamid = String(pick(event, ['user_steamid', 'victim_steamid', 'userid']) ?? '')
+      baseEvent.damage = toNumber(pick(event, ['dmg_health', 'health_damage', 'damage', 'dmg']), 0)
+    }
+    if (eventType === 'player_blind') {
+      baseEvent.player_steamid = String(pick(event, ['attacker_steamid', 'attacker']) ?? baseEvent.player_steamid ?? '')
+      baseEvent.victim_steamid = String(pick(event, ['user_steamid', 'userid', 'victim_steamid']) ?? '')
+      baseEvent.blind_duration = toNumber(pick(event, ['blind_duration', 'blind_duration_s']), 0)
+    }
+    round.timeline.push(baseEvent)
   }
 
   const ordered = Array.from(rounds.values()).sort((a, b) => a.round_number - b.round_number)
@@ -454,18 +472,93 @@ export function parseDemoBuffer(buffer, parseFns, fileMeta = {}) {
     allEvents = normalizeEvents(
       parseEvents(
         buffer,
-        ['round_start', 'round_freeze_end', 'round_end', 'player_death', 'bomb_planted', 'bomb_defused', 'item_purchase', 'item_drop', 'item_pickup'],
+        [
+          'round_start',
+          'round_freeze_end',
+          'round_end',
+          'player_death',
+          'player_hurt',
+          'weapon_fire',
+          'bomb_planted',
+          'bomb_defused',
+          'item_purchase',
+          'item_drop',
+          'item_pickup',
+          'flashbang_detonate',
+          'smokegrenade_detonate',
+          'hegrenade_detonate',
+          'inferno_startburn',
+          'player_blind',
+        ],
         ['team_num', 'name', 'steamid'],
-        ['round', 'total_rounds_played', 'reason', 'winner', 'weapon', 'weapon_name', 'weapon_item', 'item_name', 'item', 'attacker_weapon', 'headshot', 'is_headshot'],
+        [
+          'round',
+          'total_rounds_played',
+          'reason',
+          'winner',
+          'weapon',
+          'weapon_name',
+          'weapon_item',
+          'item_name',
+          'item',
+          'attacker_weapon',
+          'headshot',
+          'is_headshot',
+          'dmg_health',
+          'health_damage',
+          'damage',
+          'dmg',
+          'blind_duration',
+        ],
       ),
     )
   } catch {
     const fallback = []
-    for (const eventName of ['round_start', 'round_freeze_end', 'round_end', 'player_death', 'bomb_planted', 'bomb_defused', 'item_purchase', 'item_drop', 'item_pickup']) {
+    for (const eventName of [
+      'round_start',
+      'round_freeze_end',
+      'round_end',
+      'player_death',
+      'player_hurt',
+      'weapon_fire',
+      'bomb_planted',
+      'bomb_defused',
+      'item_purchase',
+      'item_drop',
+      'item_pickup',
+      'flashbang_detonate',
+      'smokegrenade_detonate',
+      'hegrenade_detonate',
+      'inferno_startburn',
+      'player_blind',
+    ]) {
       try {
         fallback.push(
           ...normalizeEvents(
-            parseEvent(buffer, eventName, ['team_num', 'name', 'steamid'], ['round', 'total_rounds_played', 'reason', 'winner', 'weapon', 'weapon_name', 'weapon_item', 'item_name', 'item', 'attacker_weapon', 'headshot', 'is_headshot']),
+            parseEvent(
+              buffer,
+              eventName,
+              ['team_num', 'name', 'steamid'],
+              [
+                'round',
+                'total_rounds_played',
+                'reason',
+                'winner',
+                'weapon',
+                'weapon_name',
+                'weapon_item',
+                'item_name',
+                'item',
+                'attacker_weapon',
+                'headshot',
+                'is_headshot',
+                'dmg_health',
+                'health_damage',
+                'damage',
+                'dmg',
+                'blind_duration',
+              ],
+            ),
           ),
         )
       } catch { /* noop */ }
@@ -476,7 +569,20 @@ export function parseDemoBuffer(buffer, parseFns, fileMeta = {}) {
   const rounds = groupEvents(
     allEvents.filter((e) => String(e.event_name).toLowerCase() === 'round_end'),
     allEvents.filter((e) => String(e.event_name).toLowerCase() === 'player_death'),
-    allEvents.filter((e) => ['bomb_planted', 'bomb_defused', 'item_purchase', 'item_drop', 'item_pickup'].includes(String(e.event_name).toLowerCase())),
+    allEvents.filter((e) => [
+      'bomb_planted',
+      'bomb_defused',
+      'item_purchase',
+      'item_drop',
+      'item_pickup',
+      'player_hurt',
+      'weapon_fire',
+      'flashbang_detonate',
+      'smokegrenade_detonate',
+      'hegrenade_detonate',
+      'inferno_startburn',
+      'player_blind',
+    ].includes(String(e.event_name).toLowerCase())),
     allEvents.filter((e) => String(e.event_name).toLowerCase() === 'round_start'),
     allEvents.filter((e) => String(e.event_name).toLowerCase() === 'round_freeze_end'),
   )

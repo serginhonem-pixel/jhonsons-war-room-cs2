@@ -9,12 +9,14 @@ import { parseDemoBuffer } from '../../packages/parser/index.js'
 import { buildAnalysisReport } from '../../packages/analytics/index.js'
 import { matchSchema } from '../../packages/shared-types/matchSchema.js'
 import { askBetininhoPro } from './services/betininho.js'
+import { getPlayerProfile } from '../../packages/player-profile/index.js'
 
 const require = createRequire(import.meta.url)
 const { parseHeader, parseEvents, parseEvent, parseTicks } = require('@laihoe/demoparser2')
 
 const app = express()
 const port = Number(process.env.API_PORT || 3001)
+const matchStore = new Map()
 
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
@@ -60,7 +62,7 @@ app.post('/api/parse', express.raw({ type: 'application/octet-stream', limit: '5
       return res.status(400).json({ error: 'Arquivo vazio.' })
     }
 
-    const parsed = parseDemoBuffer(
+    const match = parseDemoBuffer(
       req.body,
       { parseHeader, parseEvents, parseEvent, parseTicks },
       {
@@ -69,10 +71,28 @@ app.post('/api/parse', express.raw({ type: 'application/octet-stream', limit: '5
         matchId: randomUUID(),
       },
     )
-
-    return res.json(parsed)
+    const analysis = buildAnalysisReport(match)
+    if (match?.match_id) {
+      matchStore.set(String(match.match_id), match)
+    }
+    return res.json({ match, analysis })
   } catch (error) {
     return res.status(400).json({ error: error?.message ?? 'Falha ao processar demo.' })
+  }
+})
+
+app.get('/api/player/:matchId/:steamId', (req, res) => {
+  const { matchId, steamId } = req.params
+  const match = matchStore.get(String(matchId))
+  if (!match) {
+    return res.status(404).json({ error: 'Partida não encontrada no servidor. Reenvie a demo para gerar cache.' })
+  }
+
+  try {
+    const profile = getPlayerProfile(match, steamId)
+    return res.json(profile)
+  } catch (error) {
+    return res.status(400).json({ error: error?.message ?? 'Falha ao montar perfil do jogador.' })
   }
 })
 

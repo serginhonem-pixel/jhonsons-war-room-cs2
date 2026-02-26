@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
 import logo from './logo.png'
+import PlayersPage from './components/PlayersPage.jsx'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 const apiUrl = (path) => `${API_BASE}${path}`
@@ -1153,7 +1154,7 @@ function Dashboard({ data, analysis, onReset }) {
 
           {activeTab === 'jogadores' && (
             <div className="panel-stack">
-              <ScoreTable title="Todos os Jogadores" players={allPlayers} teamClass="" embedded />
+              <PlayersPage players={allPlayers} matchId={data.match_id} matchData={data} />
             </div>
           )}
 
@@ -1494,15 +1495,21 @@ async function uploadAndParseDemo(file) {
 
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload?.error || 'Falha ao processar demo no servidor.')
-
-  return normalizeParsedMatch(payload)
+  const matchPayload = payload?.match ?? payload
+  return {
+    match: normalizeParsedMatch(matchPayload),
+    analysis: payload?.analysis ?? null,
+  }
 }
 
 async function loadLocalRealMatch() {
   const response = await fetch('/data/real-match.json')
   if (!response.ok) throw new Error('real-match.json nao encontrado.')
   const payload = await response.json()
-  return normalizeParsedMatch(payload)
+  return {
+    match: normalizeParsedMatch(payload),
+    analysis: null,
+  }
 }
 
 async function analyzeMatch(matchRaw) {
@@ -1543,17 +1550,8 @@ export default function Cs2App() {
 
     try {
       const parsed = await uploadAndParseDemo(file)
-      let analysisReport = null
-      if (parsed.raw) {
-        try {
-          analysisReport = await analyzeMatch(parsed.raw)
-        } catch (analysisErr) {
-          console.error(analysisErr)
-          setError(`Analise indisponivel para esta carga: ${analysisErr?.message ?? 'erro desconhecido'}`)
-        }
-      }
-      setMatchData(parsed)
-      setAnalysis(analysisReport)
+      setMatchData(parsed.match)
+      setAnalysis(parsed.analysis)
       setState('dashboard')
     } catch (err) {
       console.error(err)
@@ -1568,16 +1566,16 @@ export default function Cs2App() {
     try {
       const parsed = await loadLocalRealMatch()
       let analysisReport = null
-      if (parsed.raw) {
+      if (parsed.match?.raw) {
         try {
-          analysisReport = await analyzeMatch(parsed.raw)
+          analysisReport = await analyzeMatch(parsed.match.raw)
         } catch (analysisErr) {
           console.error(analysisErr)
           setError(`Analise indisponivel para esta carga: ${analysisErr?.message ?? 'erro desconhecido'}`)
         }
       }
-      setMatchData(parsed)
-      setAnalysis(analysisReport)
+      setMatchData(parsed.match)
+      setAnalysis(parsed.analysis ?? analysisReport)
       setState('dashboard')
     } catch (err) {
       console.error(err)
@@ -1665,6 +1663,7 @@ export default function Cs2App() {
     </div>
   )
 }
+
 
 
 
