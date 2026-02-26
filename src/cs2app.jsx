@@ -17,33 +17,206 @@ function normalizeMapKey(mapName) {
     .replace(/\s+/g, '')
 }
 
+function normalizePlaceKey(placeRaw) {
+  return String(placeRaw ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+}
+
+function toNumberSafe(value, fallback = 0) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function formatMoneyBr(value) {
+  return `$${Math.round(toNumberSafe(value, 0)).toLocaleString('pt-BR')}`
+}
+
+function normalizeBuyTier(tier) {
+  return String(tier ?? '').trim().toLowerCase()
+}
+
+function isLowBuyTier(tier) {
+  const t = normalizeBuyTier(tier)
+  return t.includes('eco') || t.includes('half') || t.includes('force')
+}
+
+function isFullBuyTier(tier) {
+  return normalizeBuyTier(tier).includes('full')
+}
+
+const ITEM_PRICE = {
+  'ak-47': 2700,
+  'm4a1-s': 2900,
+  m4a1: 2900,
+  m4a4: 3000,
+  awp: 4750,
+  'galil ar': 1800,
+  famas: 2050,
+  aug: 3300,
+  sg553: 3000,
+  'mp9': 1250,
+  'mac-10': 1050,
+  ump45: 1200,
+  p90: 2350,
+  'nova': 1050,
+  'xm1014': 2000,
+  mag7: 1300,
+  sawedoff: 1100,
+  m249: 5200,
+  negev: 1700,
+  'desert eagle': 700,
+  'dual berettas': 300,
+  'p250': 300,
+  'cz75 auto': 500,
+  tec9: 500,
+  'five-seven': 500,
+  'usp-s': 200,
+  glock18: 200,
+  'zeus x27': 200,
+}
+
+function estimateFreezeSpend(events = []) {
+  const byPlayer = new Map()
+  for (const e of events) {
+    if (e.event !== 'purchase') continue
+    const steamId = String(e.player_steamid ?? '')
+    if (!steamId) continue
+    const team = e.player_team
+    const weapon = String(e.weapon ?? '').trim().toLowerCase()
+    if (!weapon) continue
+
+    if (!byPlayer.has(steamId)) {
+      byPlayer.set(steamId, {
+        team,
+        armor: 0,
+        flash: 0,
+        smoke: 0,
+        he: 0,
+        fire: 0,
+        decoy: 0,
+        hasDefuse: false,
+        weaponPrices: [],
+      })
+    }
+    const row = byPlayer.get(steamId)
+    row.team = row.team ?? team
+
+    if (weapon === 'kevlar & helmet') {
+      row.armor = Math.max(row.armor, 1000)
+      continue
+    }
+    if (weapon === 'kevlar vest') {
+      row.armor = Math.max(row.armor, 650)
+      continue
+    }
+    if (weapon === 'defuse kit') {
+      row.hasDefuse = true
+      continue
+    }
+    if (weapon === 'flashbang') {
+      row.flash = Math.min(2, row.flash + 1)
+      continue
+    }
+    if (weapon === 'smoke grenade') {
+      row.smoke = 1
+      continue
+    }
+    if (weapon === 'high explosive grenade') {
+      row.he = 1
+      continue
+    }
+    if (weapon === 'incendiary grenade' || weapon === 'molotov') {
+      row.fire = 1
+      continue
+    }
+    if (weapon === 'decoy grenade') {
+      row.decoy = 1
+      continue
+    }
+
+    const price = ITEM_PRICE[weapon] ?? 0
+    if (price > 0) row.weaponPrices.push(price)
+  }
+
+  let ct = 0
+  let tr = 0
+  let ctEquip = 0
+  let trEquip = 0
+  byPlayer.forEach((row) => {
+    const topWeapons = [...row.weaponPrices].sort((a, b) => b - a).slice(0, 2)
+    const equipValue =
+      row.armor
+      + (row.hasDefuse ? 400 : 0)
+      + (row.flash * 200)
+      + (row.smoke * 300)
+      + (row.he * 300)
+      + (row.fire * 500)
+      + (row.decoy * 50)
+      + topWeapons.reduce((sum, p) => sum + p, 0)
+    const spend = equipValue
+
+    if (row.team === 'team_ct_start') {
+      ct += spend
+      ctEquip += equipValue
+    }
+    if (row.team === 'team_t_start') {
+      tr += spend
+      trEquip += equipValue
+    }
+  })
+
+  return { ct, tr, ctEquip, trEquip, players: byPlayer.size }
+}
+
 function placeToRadarPoint(mapKey, placeRaw) {
-  const place = String(placeRaw ?? '').trim()
+  const place = normalizePlaceKey(placeRaw)
   if (!place) return null
 
   const mirage = {
-    CTSpawn: { xPct: 14, yPct: 22 },
-    TSpawn: { xPct: 22, yPct: 92 },
-    BombsiteA: { xPct: 30, yPct: 64 },
-    BombsiteB: { xPct: 82, yPct: 38 },
-    PalaceInterior: { xPct: 36, yPct: 92 },
-    PalaceAlley: { xPct: 24, yPct: 84 },
-    TRamp: { xPct: 20, yPct: 72 },
-    Apartments: { xPct: 86, yPct: 66 },
-    Catwalk: { xPct: 64, yPct: 52 },
-    Connector: { xPct: 52, yPct: 57 },
-    Jungle: { xPct: 45, yPct: 64 },
-    Stairs: { xPct: 39, yPct: 69 },
-    SnipersNest: { xPct: 50, yPct: 44 },
-    TopofMid: { xPct: 58, yPct: 46 },
-    Middle: { xPct: 58, yPct: 52 },
-    Underpass: { xPct: 48, yPct: 64 },
+    ctspawn: { xPct: 14, yPct: 58 },
+    ctstart: { xPct: 14, yPct: 58 },
+    ticketbooth: { xPct: 18, yPct: 62 },
+    ticket: { xPct: 18, yPct: 62 },
+    tspawn: { xPct: 22, yPct: 92 },
+    bombsitea: { xPct: 72, yPct: 76 },
+    bombsiteb: { xPct: 16, yPct: 24 },
+    palaceinterior: { xPct: 28, yPct: 84 },
+    palacealley: { xPct: 24, yPct: 84 },
+    tramp: { xPct: 20, yPct: 72 },
+    apartments: { xPct: 86, yPct: 66 },
+    catwalk: { xPct: 64, yPct: 52 },
+    connector: { xPct: 52, yPct: 57 },
+    jungle: { xPct: 45, yPct: 64 },
+    stairs: { xPct: 39, yPct: 69 },
+    snipersnest: { xPct: 50, yPct: 44 },
+    topofmid: { xPct: 58, yPct: 46 },
+    middle: { xPct: 58, yPct: 52 },
+    underpass: { xPct: 48, yPct: 64 },
   }
 
   const byMap = {
     de_mirage: mirage,
   }
   return byMap[mapKey]?.[place] ?? null
+}
+
+function transformRadarPoint(mapKey, xPct, yPct) {
+  void mapKey
+  return { xPct, yPct }
+}
+
+function applyRadarFrameCalibration(mapKey, xPct, yPct) {
+  // Ajusta coordenadas para a area util real do PNG do radar.
+  const frames = {
+    de_mirage: { left: 8, right: 92, top: 6, bottom: 88 },
+  }
+  const frame = frames[mapKey]
+  if (!frame) return { xPct, yPct }
+  const x = frame.left + ((frame.right - frame.left) * xPct / 100)
+  const y = frame.top + ((frame.bottom - frame.top) * yPct / 100)
+  return { xPct: x, yPct: y }
 }
 
 function normalizeParsedMatch(payload) {
@@ -318,11 +491,6 @@ function Dashboard({ data, analysis, onReset }) {
   const [selectedRoundNumber, setSelectedRoundNumber] = useState(1)
   const [showPrepItems, setShowPrepItems] = useState(false)
   const [showRoundBetininho, setShowRoundBetininho] = useState(false)
-  const [betQuestion, setBetQuestion] = useState('')
-  const [betLoading, setBetLoading] = useState(false)
-  const [betMessages, setBetMessages] = useState([
-    { role: 'assistant', text: 'Betininho PRO online. Pergunta algo tático da partida.' },
-  ])
   const [selectedRadarEventKey, setSelectedRadarEventKey] = useState(null)
   const [animationState, setAnimationState] = useState({ roundKey: null, count: Number.POSITIVE_INFINITY, isAnimating: false })
   const animationTimerRef = useRef(null)
@@ -431,6 +599,46 @@ function Dashboard({ data, analysis, onReset }) {
       }
     }
 
+    const killsByPlayer = new Map()
+    for (const kill of kills) {
+      const killerId = String(kill.killer_steamid ?? '')
+      if (!killerId) continue
+      killsByPlayer.set(killerId, (killsByPlayer.get(killerId) ?? 0) + 1)
+    }
+    let impactPlayerId = ''
+    let impactKills = 0
+    killsByPlayer.forEach((count, pid) => {
+      if (count > impactKills) {
+        impactKills = count
+        impactPlayerId = pid
+      }
+    })
+
+    let impactLabel = 'Impacto normal'
+    let impactScore = 1
+    if (impactKills >= 5) {
+      impactLabel = 'ACE decisivo'
+      impactScore = 5
+    } else if (impactKills === 4) {
+      impactLabel = '4K de alto impacto'
+      impactScore = 4
+    } else if (impactKills === 3) {
+      impactLabel = '3K de impacto'
+      impactScore = 3
+    }
+
+    const econ = selectedRound.economy ?? {}
+    const ctEquip = toNumberSafe(econ?.team_ct_start?.equipment_value)
+    const trEquip = toNumberSafe(econ?.team_t_start?.equipment_value)
+    const ctBuy = econ?.team_ct_start?.buy_tier ?? 'n/a'
+    const trBuy = econ?.team_t_start?.buy_tier ?? 'n/a'
+    const winnerTeam = selectedRound.winner
+    const winnerBuy = winnerTeam === 'team_ct_start' ? ctBuy : trBuy
+    const loserBuy = winnerTeam === 'team_ct_start' ? trBuy : ctBuy
+    const winnerEquip = winnerTeam === 'team_ct_start' ? ctEquip : trEquip
+    const loserEquip = winnerTeam === 'team_ct_start' ? trEquip : ctEquip
+    const ecoWin = (isLowBuyTier(winnerBuy) && isFullBuyTier(loserBuy)) || (winnerEquip > 0 && loserEquip > 0 && winnerEquip <= loserEquip * 0.72)
+
     return {
       firstKill,
       firstDeath,
@@ -439,6 +647,13 @@ function Dashboard({ data, analysis, onReset }) {
       oneVOneWin,
       hsCount: kills.filter((k) => Boolean(k.headshot)).length,
       tradeCount: kills.filter((k) => k.trade_delta_s != null).length,
+      impactPlayerId,
+      impactKills,
+      impactLabel,
+      impactScore,
+      ecoWin,
+      winnerBuy,
+      loserBuy,
     }
   }, [selectedRound])
   const roundKills = useMemo(
@@ -449,6 +664,33 @@ function Dashboard({ data, analysis, onReset }) {
     () => (selectedRound?.timeline ?? []).filter((e) => e.event === 'purchase' || e.event === 'drop').sort((a, b) => a.tick - b.tick),
     [selectedRound],
   )
+  const roundEconomy = useMemo(() => {
+    const econ = selectedRound?.economy ?? {}
+    const declaredStart = Number(selectedRound?.start_tick) || 0
+    const fallbackStart = (selectedRound?.timeline ?? []).reduce((acc, e) => {
+      const t = Number(e.tick) || 0
+      if (t <= 0) return acc
+      if (acc === 0) return t
+      return Math.min(acc, t)
+    }, 0)
+    const baseTick = declaredStart > 0 ? declaredStart : fallbackStart
+    const firstKillTick = (selectedRound?.timeline ?? []).find((e) => e.event === 'kill')?.tick ?? 0
+    const freezeTickLimitByTime = (baseTick || 0) + (64 * 22)
+    const freezeTickLimit = firstKillTick > 0 ? Math.min(firstKillTick, freezeTickLimitByTime) : freezeTickLimitByTime
+    const freezeEvents = roundPrepEvents.filter((e) => e.event === 'purchase' && (Number(e.tick) || 0) <= freezeTickLimit)
+    const freezeEstimate = estimateFreezeSpend(freezeEvents)
+    return {
+      ctEquipEstimate: freezeEstimate.ctEquip,
+      trEquipEstimate: freezeEstimate.trEquip,
+      ctSpentEstimate: freezeEstimate.ct,
+      trSpentEstimate: freezeEstimate.tr,
+      ctBuy: econ?.team_ct_start?.buy_tier ?? 'N/A',
+      trBuy: econ?.team_t_start?.buy_tier ?? 'N/A',
+      purchases: freezeEvents.length,
+      purchasePlayers: freezeEstimate.players,
+      drops: roundPrepEvents.filter((e) => e.event === 'drop').length,
+    }
+  }, [selectedRound, roundPrepEvents])
   const roundBombEvents = useMemo(() => {
     if (!selectedRound) return []
     const roundStartTick = Number(selectedRound.start_tick) || 0
@@ -562,6 +804,15 @@ function Dashboard({ data, analysis, onReset }) {
     }
     return roundKills.map((_, idx) => parseState(selectedRound?.state_transitions?.[idx] ?? '5v5'))
   }, [roundKills, selectedRound])
+  const killStreakAtIndex = useMemo(() => {
+    const counter = new Map()
+    return roundKills.map((event) => {
+      const killerId = String(event.killer_steamid ?? '')
+      const value = (counter.get(killerId) ?? 0) + 1
+      counter.set(killerId, value)
+      return value
+    })
+  }, [roundKills])
 
   const getKillTags = (event, idx) => {
     const tags = []
@@ -581,6 +832,10 @@ function Dashboard({ data, analysis, onReset }) {
         if (own === 1 && opp >= 1) tags.push({ kind: 'clutch', label: `CLUTCH 1v${opp}` })
       }
     }
+    const streak = killStreakAtIndex[idx] ?? 0
+    if (streak === 3) tags.push({ kind: 'impact', label: '3K IMPACTO' })
+    if (streak === 4) tags.push({ kind: 'impact', label: '4K IMPACTO' })
+    if (streak >= 5) tags.push({ kind: 'impact', label: 'ACE' })
     return tags
   }
   const formatRoundClock = (eventTick, fallbackTs) => {
@@ -601,9 +856,64 @@ function Dashboard({ data, analysis, onReset }) {
     if (event?.event === 'bomb_defused') return 'defuser'
     return 'c4'
   }
+  const radarContext = useMemo(() => {
+    const mapKey = normalizeMapKey(data?.match_info?.map ?? data?.meta?.map ?? '')
+    const rounds = Array.isArray(data?.rounds) ? data.rounds : []
+    const allPoints = []
+    const placeBuckets = new Map()
+
+    const pushPoint = (position) => {
+      if (!position) return
+      const x = Number(position.x)
+      const y = Number(position.y)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return
+      allPoints.push({ x, y })
+      const placeKey = normalizePlaceKey(position.place)
+      if (!placeKey) return
+      if (!placeBuckets.has(placeKey)) placeBuckets.set(placeKey, [])
+      placeBuckets.get(placeKey).push({ x, y })
+    }
+
+    for (const round of rounds) {
+      const events = Array.isArray(round?.events) ? round.events : []
+      for (const event of events) {
+        pushPoint(event?.killer_position)
+        pushPoint(event?.victim_position)
+        pushPoint(event?.position)
+      }
+    }
+
+    if (allPoints.length === 0) return { mapKey, bounds: null, placePoints: {} }
+
+    const xs = allPoints.map((p) => p.x)
+    const ys = allPoints.map((p) => p.y)
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs)
+    const minY = Math.min(...ys)
+    const maxY = Math.max(...ys)
+    const spanX = Math.max(1, maxX - minX)
+    const spanY = Math.max(1, maxY - minY)
+    const toPct = (x, y) => ({
+      xPct: ((x - minX) / spanX) * 100,
+      yPct: 100 - (((y - minY) / spanY) * 100),
+    })
+
+    const placePoints = {}
+    placeBuckets.forEach((bucket, placeKey) => {
+      const avgX = bucket.reduce((sum, p) => sum + p.x, 0) / bucket.length
+      const avgY = bucket.reduce((sum, p) => sum + p.y, 0) / bucket.length
+      const point = toPct(avgX, avgY)
+      placePoints[placeKey] = {
+        xPct: Math.max(7, Math.min(93, point.xPct)),
+        yPct: Math.max(7, Math.min(93, point.yPct)),
+      }
+    })
+
+    return { mapKey, bounds: { minX, minY, spanX, spanY }, placePoints }
+  }, [data])
   const roundRadarMarkers = useMemo(() => {
     if (!selectedRound) return []
-    const mapKey = normalizeMapKey(data?.match_info?.map ?? data?.meta?.map ?? '')
+    const mapKey = radarContext.mapKey || normalizeMapKey(data?.match_info?.map ?? data?.meta?.map ?? '')
     const labelFromId = (steamId) => {
       if (!steamId) return '-'
       return playerNameBySteamId.get(String(steamId)) ?? `Player-${String(steamId).slice(-4)}`
@@ -651,26 +961,34 @@ function Dashboard({ data, analysis, onReset }) {
 
     const xs = valid.map((p) => p.x)
     const ys = valid.map((p) => p.y)
-    const minX = Math.min(...xs)
-    const maxX = Math.max(...xs)
-    const minY = Math.min(...ys)
-    const maxY = Math.max(...ys)
-    const spanX = Math.max(1, maxX - minX)
-    const spanY = Math.max(1, maxY - minY)
+    const roundMinX = Math.min(...xs)
+    const roundMaxX = Math.max(...xs)
+    const roundMinY = Math.min(...ys)
+    const roundMaxY = Math.max(...ys)
+    const roundSpanX = Math.max(1, roundMaxX - roundMinX)
+    const roundSpanY = Math.max(1, roundMaxY - roundMinY)
+    const minX = radarContext.bounds?.minX ?? roundMinX
+    const minY = radarContext.bounds?.minY ?? roundMinY
+    const spanX = radarContext.bounds?.spanX ?? roundSpanX
+    const spanY = radarContext.bounds?.spanY ?? roundSpanY
 
     return valid.map((p) => {
-      const placePoint = placeToRadarPoint(mapKey, p.place)
+      const placeKey = normalizePlaceKey(p.place)
+      const placePointBase = radarContext.placePoints?.[placeKey] ?? placeToRadarPoint(mapKey, p.place)
       const xPctRaw = ((p.x - minX) / spanX) * 100
       const yPctRaw = 100 - (((p.y - minY) / spanY) * 100)
-      const xPct = placePoint?.xPct ?? xPctRaw
-      const yPct = placePoint?.yPct ?? yPctRaw
+      const rawTransformed = transformRadarPoint(mapKey, xPctRaw, yPctRaw)
+      const placePoint = placePointBase || null
+      const finalX = placePoint?.xPct ?? rawTransformed.xPct
+      const finalY = placePoint?.yPct ?? rawTransformed.yPct
+      const calibrated = applyRadarFrameCalibration(mapKey, finalX, finalY)
       return {
         ...p,
-        xPct: Math.max(7, Math.min(93, xPct)),
-        yPct: Math.max(7, Math.min(93, yPct)),
+        xPct: Math.max(7, Math.min(93, calibrated.xPct)),
+        yPct: Math.max(7, Math.min(93, calibrated.yPct)),
       }
     })
-  }, [selectedRound, playerNameBySteamId, roundLiveEvents, data])
+  }, [selectedRound, playerNameBySteamId, roundLiveEvents, data, radarContext])
   const visibleRadarMarkers = useMemo(() => {
     const hasSelected = selectedRadarEventKey && roundRadarMarkers.some((m) => m.eventKey === selectedRadarEventKey)
     if (!hasSelected) return roundRadarMarkers
@@ -722,31 +1040,6 @@ function Dashboard({ data, analysis, onReset }) {
     }, 220)
   }
 
-  const handleAskBetininho = async () => {
-    const question = betQuestion.trim()
-    if (!question || betLoading) return
-    setBetQuestion('')
-    setBetLoading(true)
-    setBetMessages((prev) => [...prev, { role: 'user', text: question }])
-    try {
-      const result = await askBetininho(data.raw ?? data, question)
-      const suffix = result?.mode === 'langchain' ? '' : ' (modo local sem custo)'
-      setBetMessages((prev) => [...prev, { role: 'assistant', text: `${result?.answer ?? 'Sem resposta.'}${suffix}` }])
-    } catch (error) {
-      const fallback = localBetininhoFallback(question, data, analysis)
-      const rawMessage = String(error?.message ?? 'falha ao consultar agente.')
-      const hint = rawMessage.toLowerCase().includes('failed to fetch')
-        ? 'API indisponível no momento. Verifique se `npm run dev` está ativo.'
-        : rawMessage
-      setBetMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: `${fallback} (fallback local)` },
-        { role: 'assistant', text: `Diagnóstico: ${hint}` },
-      ])
-    } finally {
-      setBetLoading(false)
-    }
-  }
   const getRoundBetininhoTip = () => {
     if (!selectedRound) return 'Sem rodada selecionada.'
     const first = roundInsights.firstKill ? getPlayerLabel(roundInsights.firstKill.killer_steamid) : 'N/A'
@@ -913,107 +1206,80 @@ function Dashboard({ data, analysis, onReset }) {
               </section>
 
               {selectedRound && (
-                <section className="panel-block">
-                  <h3>Detalhes do round {selectedRound.round_number}</h3>
-                  <div className="quick-insights round-metrics">
-                    <article>
-                      <p className="dim">First kill</p>
-                      <h4>{roundInsights.firstKill ? getPlayerLabel(roundInsights.firstKill.killer_steamid) : 'N/A'}</h4>
-                      <p>{roundInsights.firstKill ? getTeamLabel(roundInsights.firstKill.killer_team) : '-'}</p>
-                    </article>
-                    <article>
-                      <p className="dim">First death</p>
-                      <h4>{roundInsights.firstDeath ? getPlayerLabel(roundInsights.firstDeath.steamid) : 'N/A'}</h4>
-                      <p>{roundInsights.firstDeath ? getTeamLabel(roundInsights.firstDeath.team) : '-'}</p>
-                    </article>
-                    <article>
-                      <p className="dim">Entry tradada</p>
-                      <h4>{roundInsights.entryTrade ? 'Sim' : 'Nao'}</h4>
-                      <p>Resposta ao first kill</p>
-                    </article>
-                    <article>
-                      <p className="dim">Clutch</p>
-                      <h4>{roundInsights.clutchLevel > 0 ? `1v${roundInsights.clutchLevel}` : 'Nao'}</h4>
-                      <p>{roundInsights.clutchLevel > 0 ? 'clutch vencido' : 'sem clutch vencedor'}</p>
-                    </article>
-                    <article>
-                      <p className="dim">1v1 win</p>
-                      <h4>{roundInsights.oneVOneWin ? 'Sim' : 'Nao'}</h4>
-                      <p>Teve estado 1v1</p>
-                    </article>
-                    <article>
-                      <p className="dim">Headshots</p>
-                      <h4>{roundInsights.hsCount}</h4>
-                      <p>no round</p>
-                    </article>
-                    <article>
-                      <p className="dim">Trades</p>
-                      <h4>{roundInsights.tradeCount}</h4>
-                      <p>abates de resposta</p>
-                    </article>
-                  </div>
+                <section className="panel-block round-pro-shell">
+                  <header className="round-pro-head">
+                    <div className="round-pro-title">
+                      <h3>Round {selectedRound.round_number}</h3>
+                      <p className="dim">{getWinReasonPtBr(selectedRound.win_reason)}</p>
+                    </div>
+                    <div className="round-pro-nav">
+                      <button
+                        type="button"
+                        className="round-arrow-btn round-arrow-inline"
+                        onClick={handlePrevRound}
+                        disabled={selectedRoundIndex <= 0}
+                        aria-label="Round anterior"
+                        title="Round anterior"
+                      >
+                        ◀
+                      </button>
+                      <p className="round-title">ROUND {selectedRound.round_number}</p>
+                      <button
+                        type="button"
+                        className="round-arrow-btn round-arrow-inline"
+                        onClick={handleNextRound}
+                        disabled={selectedRoundIndex < 0 || selectedRoundIndex >= roundsOrdered.length - 1}
+                        aria-label="Próximo round"
+                        title="Próximo round"
+                      >
+                        ▶
+                      </button>
+                    </div>
+                    <div className="round-pro-score">
+                      <span className="ct-text">{roundHud.ctAlive}</span>
+                      <CsIcon name="round" label="Round" fallback="•" variant="badge" />
+                      <span className="tr-text">{roundHud.tAlive}</span>
+                    </div>
+                  </header>
 
-                  <div className="round-warroom">
-                    <header className="round-warroom-top">
-                      <div className="alive-side">
-                        <span className="side-label ct-text">CT</span>
-                        <div className="alive-dots">
-                          {Array.from({ length: 5 }).map((_, i) => (
-                            <span key={`ct-${i}`} className={`alive-dot ${i < roundHud.ctAlive ? 'on ct-on' : ''}`} />
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="round-center">
-                        <p className="round-title">ROUND {selectedRound.round_number}</p>
-                        <div className="round-mini-score">
-                          <span className="ct-text">{roundHud.ctAlive}</span>
-                          <CsIcon name="round" label="Round" fallback="•" variant="badge" />
-                          <span className="tr-text">{roundHud.tAlive}</span>
-                        </div>
-                        <p className="dim">{getWinReasonPtBr(selectedRound.win_reason)}</p>
-                      </div>
-
-                      <div className="alive-side">
-                        <span className="side-label tr-text">TR</span>
-                        <div className="alive-dots">
-                          {Array.from({ length: 5 }).map((_, i) => (
-                            <span key={`tr-${i}`} className={`alive-dot ${i < roundHud.tAlive ? 'on tr-on' : ''}`} />
-                          ))}
-                        </div>
-                      </div>
-                    </header>
-
-                    <div className="round-warroom-grid">
-                      <section className="round-economy">
+                  <div className="round-pro-grid">
+                    <aside className="round-economy">
+                      <div className="round-economy-card">
                         <div className="eco-row">
-                          <span>Equipamento</span>
-                          <strong className="ct-text">${selectedRound.economy?.team_ct_start?.equipment_value ?? 0}</strong>
-                          <strong className="tr-text">${selectedRound.economy?.team_t_start?.equipment_value ?? 0}</strong>
+                          <span>Equipamento (estimado)</span>
+                          <strong className="ct-text">{formatMoneyBr(roundEconomy.ctEquipEstimate)}</strong>
+                          <strong className="tr-text">{formatMoneyBr(roundEconomy.trEquipEstimate)}</strong>
                         </div>
                         <div className="eco-row">
-                          <span>Gasto</span>
-                          <strong className="ct-text">${selectedRound.economy?.team_ct_start?.cash_spent ?? 0}</strong>
-                          <strong className="tr-text">${selectedRound.economy?.team_t_start?.cash_spent ?? 0}</strong>
+                          <span>Gasto estimado (freeze)</span>
+                          <strong className="ct-text">{formatMoneyBr(roundEconomy.ctSpentEstimate)}</strong>
+                          <strong className="tr-text">{formatMoneyBr(roundEconomy.trSpentEstimate)}</strong>
                         </div>
                         <div className="eco-row">
                           <span>Compra</span>
-                          <strong className="ct-text">{selectedRound.economy?.team_ct_start?.buy_tier ?? 'N/A'}</strong>
-                          <strong className="tr-text">{selectedRound.economy?.team_t_start?.buy_tier ?? 'N/A'}</strong>
+                          <strong className="ct-text">{roundEconomy.ctBuy}</strong>
+                          <strong className="tr-text">{roundEconomy.trBuy}</strong>
                         </div>
+                      </div>
+                      <div className="round-economy-meta">
                         <p className="dim">Vantagem inicial: {getTeamLabel(selectedRound.opening_advantage_team_id)}</p>
-                        <div className="radar-box">
-                          <p className="dim">Radar do mapa</p>
-                          <MapRadarWithEvents map={data.match_info.map} markers={visibleRadarMarkers} selectedEventKey={selectedRadarEventKey} />
-                        </div>
-                      </section>
+                        <p className="dim">Compras freeze: {roundEconomy.purchases} | Players: {roundEconomy.purchasePlayers} | Drops: {roundEconomy.drops}</p>
+                      </div>
+                      <div className="radar-box">
+                        <p className="dim">Radar do mapa</p>
+                        <MapRadarWithEvents map={data.match_info.map} markers={visibleRadarMarkers} selectedEventKey={selectedRadarEventKey} />
+                      </div>
+                    </aside>
 
-                      <section className="round-feed">
-                        <div className="round-feed-side">
+                    <main className="round-feed">
+                      <div className="round-feed-side">
+                        <div className="round-feed-toolbar">
                           <div className="round-feed-stats">
                             <span>K {roundKills.length}</span>
                             <span>HS {roundInsights.hsCount}</span>
                             <span>TRD {roundInsights.tradeCount}</span>
+                          </div>
+                          <div className="round-feed-actions">
                             <button
                               className={`feed-toggle-btn ${showRoundBetininho ? 'active' : ''}`}
                               type="button"
@@ -1028,35 +1294,63 @@ function Dashboard({ data, analysis, onReset }) {
                               {animationState.isAnimating ? 'Rodando...' : 'Play'}
                             </button>
                           </div>
+                        </div>
+                        <div className="round-tactical-strip">
+                          <div className="t-item">
+                            <span>First</span>
+                            <strong>{roundInsights.firstKill ? getPlayerLabel(roundInsights.firstKill.killer_steamid) : 'N/A'}</strong>
+                          </div>
+                          <div className="t-item">
+                            <span>Death</span>
+                            <strong>{roundInsights.firstDeath ? getPlayerLabel(roundInsights.firstDeath.steamid) : 'N/A'}</strong>
+                          </div>
+                          <div className="t-item">
+                            <span>Entry</span>
+                            <strong>{roundInsights.entryTrade ? 'Tradada' : 'Sem trade'}</strong>
+                          </div>
+                          <div className="t-item">
+                            <span>Clutch</span>
+                            <strong>{roundInsights.clutchLevel > 0 ? `1v${roundInsights.clutchLevel}` : 'Nao'}</strong>
+                          </div>
+                          <div className="t-item">
+                            <span>HS / TRD</span>
+                            <strong>{roundInsights.hsCount} / {roundInsights.tradeCount}</strong>
+                          </div>
+                          <div className="t-item">
+                            <span>Impacto</span>
+                            <strong>{roundInsights.impactPlayerId ? `${getPlayerLabel(roundInsights.impactPlayerId)} (${roundInsights.impactKills}K)` : 'Sem destaque'}</strong>
+                          </div>
+                        </div>
+                        <div className="round-feed-card">
                           <div className="round-feed-live">
-                            {showRoundBetininho && (
-                              <article className="round-betininho-card">
-                                <img src={BETININHO_AVATAR} alt="Betininho PRO" className="round-betininho-avatar" />
-                                <p>{getRoundBetininhoTip()}</p>
-                              </article>
-                            )}
-                            {showPrepItems && preRoundLoadoutRows.length > 0 && (
-                              <div className="prep-events">
-                                {preRoundLoadoutRows.map((row) => (
-                                  <div key={`${selectedRound.round_number}-prep-${row.steamid}`} className="killfeed-item compact prep loadout">
-                                    <span className="kill-time">{formatRoundClock(row.firstTick, row.firstTick / 64)}</span>
-                                    <span className={`kill-player ${getTeamTextClass(row.team)}`}>{getPlayerLabel(row.steamid)}</span>
-                                    <span className="prep-icons">
-                                      {row.icons.map((iconName, iconIdx) => (
-                                        <CsIcon
-                                          key={`${row.steamid}-${iconName}-${iconIdx}`}
-                                          name={iconName}
-                                          label={iconName}
-                                          fallback="•"
-                                          variant="weapon"
-                                        />
-                                      ))}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {visibleRoundEvents.map((item, idx) => {
+                              {showRoundBetininho && (
+                                <article className="round-betininho-card">
+                                  <img src={BETININHO_AVATAR} alt="Betininho PRO" className="round-betininho-avatar" />
+                                  <p>{getRoundBetininhoTip()}</p>
+                                </article>
+                              )}
+                              {showPrepItems && preRoundLoadoutRows.length > 0 && (
+                                <div className="prep-events">
+                                  {preRoundLoadoutRows.map((row) => (
+                                    <div key={`${selectedRound.round_number}-prep-${row.steamid}`} className="killfeed-item compact prep loadout">
+                                      <span className="kill-time">{formatRoundClock(row.firstTick, row.firstTick / 64)}</span>
+                                      <span className={`kill-player ${getTeamTextClass(row.team)}`}>{getPlayerLabel(row.steamid)}</span>
+                                      <span className="prep-icons">
+                                        {row.icons.map((iconName, iconIdx) => (
+                                          <CsIcon
+                                            key={`${row.steamid}-${iconName}-${iconIdx}`}
+                                            name={iconName}
+                                            label={iconName}
+                                            fallback="•"
+                                            variant="weapon"
+                                          />
+                                        ))}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {visibleRoundEvents.map((item, idx) => {
                               if (item.kind === 'bomb') {
                                 const event = item.event
                                 const eventKey = `bomb-${item.bombIndex}`
@@ -1115,7 +1409,9 @@ function Dashboard({ data, analysis, onReset }) {
                                         fallback="🎯"
                                         variant="weapon"
                                       />
-                                      {event.headshot && <CsIcon name="headshot" label="Headshot" fallback="HS" variant="hs" />}
+                                      {event.headshot
+                                        ? <CsIcon name="headshot" label="Headshot" fallback="HS" variant="hs" />
+                                        : <span className="kill-hs-slot" />}
                                     </span>
                                     <span className={`kill-player ${getTeamTextClass(event.victim_team)}`}>{getPlayerLabel(event.victim_steamid)}</span>
                                   </span>
@@ -1128,15 +1424,15 @@ function Dashboard({ data, analysis, onReset }) {
                                   </span>
                                 </div>
                               )
-                            })}
-                            {roundLiveEvents.length === 0 && <p className="dim">Sem kills registradas nesta rodada.</p>}
+                              })}
+                              {roundLiveEvents.length === 0 && <p className="dim">Sem kills registradas nesta rodada.</p>}
                           </div>
-                          <p className={`round-winner ${getTeamTextClass(selectedRound.winner)}`}>
-                            {selectedRound.winner === 'team_ct_start' ? 'Counter-Terrorists venceram' : 'Terrorists venceram'}
-                          </p>
                         </div>
-                      </section>
-                    </div>
+                        <p className={`round-winner ${getTeamTextClass(selectedRound.winner)}`}>
+                          {selectedRound.winner === 'team_ct_start' ? 'Counter-Terrorists venceram' : 'Terrorists venceram'}
+                        </p>
+                      </div>
+                    </main>
                   </div>
                 </section>
               )}
@@ -1171,42 +1467,8 @@ function Dashboard({ data, analysis, onReset }) {
                     </article>
                   </div>
                 ) : (
-                  <p className="dim">Sem analise disponivel para esta partida, mas o Betininho PRO pode responder com base no match.</p>
+                  <p className="dim">Sem analise disponivel para esta partida.</p>
                 )}
-                <section className="betininho-card">
-                  <div className="betininho-head">
-                    <div className="betininho-hero">
-                      <div className="betininho-avatar-wrap">
-                        <img src={BETININHO_AVATAR} alt="Betininho PRO" className="betininho-avatar" />
-                      </div>
-                      <div className="betininho-title-wrap">
-                        <h4>Betininho PRO</h4>
-                      </div>
-                    </div>
-                    <span className="dim">Perguntas táticas da partida</span>
-                  </div>
-                  <div className="betininho-chat">
-                    {betMessages.map((msg, idx) => (
-                      <div key={`bet-${idx}`} className={`bet-bubble ${msg.role}`}>
-                        {msg.text}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="betininho-input">
-                    <input
-                      type="text"
-                      value={betQuestion}
-                      onChange={(e) => setBetQuestion(e.target.value)}
-                      placeholder="Ex: Onde perdemos mais entry no lado CT?"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleAskBetininho()
-                      }}
-                    />
-                    <button type="button" onClick={handleAskBetininho} disabled={betLoading}>
-                      {betLoading ? 'Lendo...' : 'Perguntar'}
-                    </button>
-                  </div>
-                </section>
               </div>
             </section>
           )}
@@ -1253,47 +1515,6 @@ async function analyzeMatch(matchRaw) {
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload?.error || 'Falha ao analisar partida.')
   return payload
-}
-
-async function askBetininho(matchRaw, question) {
-  const response = await fetch(apiUrl('/api/betininho-pro'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ match: matchRaw, question }),
-  })
-
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload?.error || 'Falha ao consultar Betininho PRO.')
-  return payload
-}
-
-function localBetininhoFallback(question, data, analysis) {
-  const q = String(question ?? '').toLowerCase()
-  const players = Array.isArray(data?.players) ? [...data.players] : []
-  const top = players.sort((a, b) => (b?.stats?.rating_2 ?? 0) - (a?.stats?.rating_2 ?? 0))[0]
-  const avgTrade = analysis?.trades?.avg_trade_time_s ?? 0
-
-  if (q.includes('entry') || q.includes('first kill')) {
-    const bestEntry = players
-      .map((p) => ({ nick: p.nick, delta: (p?.stats?.entry_kills ?? 0) - (p?.stats?.entry_deaths ?? 0), ek: p?.stats?.entry_kills ?? 0, ed: p?.stats?.entry_deaths ?? 0 }))
-      .sort((a, b) => b.delta - a.delta)[0]
-    if (!bestEntry) return 'Sem dados suficientes de entry para responder.'
-    return `Entry foco: ${bestEntry.nick} (saldo ${bestEntry.delta}, ${bestEntry.ek}/${bestEntry.ed}).`
-  }
-
-  if (q.includes('trade')) {
-    return `Trade atual em ${avgTrade}s. Objetivo competitivo: < 2.0s nas brigas chave.`
-  }
-
-  if (q.includes('economia') || q.includes('eco') || q.includes('buy')) {
-    return 'Recomendação: revisar rounds perdidos de full buy e rounds pós-loss streak para ajuste de protocolo.'
-  }
-
-  if (top) {
-    return `Resumo: destaque ${top.nick} (${top.stats.kills}/${top.stats.deaths}, ADR ${top.stats.adr.toFixed(1)}, Rating ${top.stats.rating_2.toFixed(2)}).`
-  }
-
-  return 'Consigo responder sobre entry, trade, economia e rounds chave desta partida.'
 }
 
 export default function Cs2App() {
@@ -1431,14 +1652,16 @@ export default function Cs2App() {
         />
       )}
 
-      <aside className="warroom-corner">
-        <iframe
-          src="/warroom/test.html?v=3"
-          title="War Room Corner"
-          className="warroom-corner-frame"
-          scrolling="no"
-        />
-      </aside>
+      {state !== 'dashboard' && (
+        <aside className="warroom-corner">
+          <iframe
+            src="/warroom/test.html?v=3"
+            title="War Room Corner"
+            className="warroom-corner-frame"
+            scrolling="no"
+          />
+        </aside>
+      )}
     </div>
   )
 }

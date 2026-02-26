@@ -502,6 +502,29 @@ button:hover {
   font-size: 0.98rem;
 }
 
+.betininho-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bet-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.bet-status-dot.on {
+  background: #42e28c;
+  box-shadow: 0 0 8px rgba(66, 226, 140, 0.7);
+}
+
+.bet-status-dot.off {
+  background: #ff6e78;
+  box-shadow: 0 0 8px rgba(255, 110, 120, 0.55);
+}
+
 .betininho-chat {
   margin-top: 8px;
   display: grid;
@@ -579,6 +602,12 @@ button:hover {
   font-size: 0.82rem;
 }
 
+.cs-icon.weapon,
+.cs-icon-fallback.weapon {
+  width: 56px;
+  height: 20px;
+}
+
 .cs-icon.badge,
 .cs-icon-fallback.badge {
   width: 14px;
@@ -602,9 +631,176 @@ button:hover {
 }
 
 .round-warroom {
-  border: 1px solid rgba(125, 157, 211, 0.28);
+  border: 1px solid rgba(120, 152, 208, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(8, 15, 30, 0.94), rgba(7, 13, 24, 0.95));
+  box-shadow: inset 0 0 0 1px rgba(108, 147, 219, 0.08);
+}
+
+.round-pro-shell {
+  border: 1px solid rgba(120, 152, 208, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(8, 15, 30, 0.94), rgba(7, 13, 24, 0.95));
+  box-shadow: inset 0 0 0 1px rgba(108, 147, 219, 0.08);
+  padding: 0;
+}
+
+.round-pro-head {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid rgba(125, 157, 211, 0.16);
+  padding: 12px 14px;
+}
+
+.round-pro-title h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.round-pro-title p {
+  margin: 3px 0 0;
+}
+
+.round-pro-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.round-pro-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.round-pro-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+/* Round V2 overrides: mantém killfeed, muda todo o restante */
+.round-pro-shell {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(94, 132, 202, 0.34);
+  background:
+    radial-gradient(1200px 420px at 85% -10%, rgba(63, 122, 229, 0.16), transparent 55%),
+    linear-gradient(165deg, rgba(7, 16, 33, 0.97) 0%, rgba(5, 11, 24, 0.98) 100%);
+}
+
+.round-pro-shell .round-pro-head {
+  border: 1px solid rgba(97, 141, 220, 0.28);
   border-radius: 12px;
-  background: linear-gradient(180deg, rgba(10, 18, 35, 0.88), rgba(9, 15, 28, 0.9));
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(11, 24, 48, 0.82), rgba(8, 18, 36, 0.75));
+}
+
+.round-pro-shell .round-pro-title h3 {
+  font-size: 1.2rem;
+  letter-spacing: 0.01em;
+}
+
+.round-pro-shell .round-pro-title .dim {
+  color: #9cb6e4;
+  font-weight: 700;
+}
+
+.round-pro-shell .round-pro-nav {
+  gap: 10px;
+}
+
+.round-pro-shell .round-title {
+  font-size: 0.78rem;
+  letter-spacing: 0.11em;
+}
+
+.round-pro-shell .round-pro-score {
+  padding: 5px 10px;
+  border: 1px solid rgba(105, 143, 212, 0.3);
+  border-radius: 999px;
+  background: rgba(9, 19, 37, 0.72);
+}
+
+.round-pro-shell .round-pro-grid {
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px 0 0;
+}
+
+.round-pro-shell .round-economy {
+  border-color: rgba(104, 142, 215, 0.28);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(10, 21, 41, 0.9), rgba(8, 16, 31, 0.82));
+}
+
+.round-pro-shell .round-economy-card {
+  border-color: rgba(104, 142, 215, 0.24);
+  background: rgba(6, 14, 28, 0.74);
+}
+
+.round-pro-shell .round-feed-toolbar {
+  border-color: rgba(104, 142, 215, 0.28);
+  background: linear-gradient(180deg, rgba(10, 21, 41, 0.86), rgba(8, 16, 31, 0.82));
+}
+
+.round-pro-shell .round-feed-stats span {
+  border-color: rgba(114, 155, 230, 0.44);
+  background: rgba(11, 26, 52, 0.75);
+}
+
+.round-pro-shell .round-tactical-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.round-pro-shell .round-tactical-strip .t-item {
+  border-radius: 8px;
+  border-color: rgba(104, 142, 215, 0.28);
+  border-style: solid;
+  border-width: 1px;
+  background: rgba(9, 20, 39, 0.85);
+  padding: 6px 7px;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.round-pro-shell .round-tactical-strip .t-item span {
+  color: #8ea8d6;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.round-pro-shell .round-tactical-strip .t-item strong {
+  color: #dce9ff;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.round-pro-shell .round-feed-card {
+  border-color: rgba(104, 142, 215, 0.3);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(9, 19, 37, 0.9), rgba(7, 14, 27, 0.85));
+}
+
+.round-pro-shell .round-winner {
+  font-size: 1.02rem;
+  letter-spacing: 0.01em;
 }
 
 .round-warroom-top {
@@ -612,8 +808,8 @@ button:hover {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
-  border-bottom: 1px solid rgba(125, 157, 211, 0.2);
-  padding: 10px 12px;
+  border-bottom: 1px solid rgba(125, 157, 211, 0.16);
+  padding: 12px 14px;
 }
 
 .alive-side {
@@ -660,6 +856,12 @@ button:hover {
   text-align: center;
 }
 
+.round-title-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .round-title {
   margin: 0;
   font-size: 0.72rem;
@@ -667,30 +869,64 @@ button:hover {
   letter-spacing: 0.1em;
 }
 
+.round-arrow-inline {
+  min-width: 24px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 7px;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
 .round-mini-score {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 2px;
+  width: fit-content;
+  margin: 4px auto 0;
   font-size: 1rem;
   font-weight: 800;
 }
 
-.round-warroom-grid {
-  display: grid;
-  grid-template-columns: 270px minmax(0, 1fr);
-  gap: 0;
+.round-alive-label {
+  margin: 2px 0 0;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  color: #8da7d2;
 }
 
-.round-economy {
-  border-right: 1px solid rgba(125, 157, 211, 0.2);
+.round-warroom-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 12px;
   padding: 12px;
 }
 
-.radar-box {
+.round-economy {
+  border: 1px solid rgba(120, 152, 208, 0.2);
+  border-radius: 12px;
+  background: rgba(10, 19, 38, 0.76);
+  padding: 12px;
+}
+
+.round-economy-card {
+  border: 1px solid rgba(120, 152, 208, 0.18);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: rgba(7, 14, 29, 0.5);
+}
+
+.round-economy-meta {
+  display: grid;
+  gap: 4px;
   margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(125, 157, 211, 0.2);
+}
+
+.radar-box {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(125, 157, 211, 0.16);
 }
 
 .eco-row {
@@ -715,16 +951,33 @@ button:hover {
 }
 
 .round-feed {
-  padding: 12px;
+  padding: 0;
   min-width: 0;
   display: block;
 }
 
 .round-feed-side {
   width: 100%;
-  max-width: 560px;
+  max-width: none;
   margin-left: 0;
   display: grid;
+  gap: 10px;
+}
+
+.round-feed-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(120, 152, 208, 0.2);
+  border-radius: 10px;
+  background: rgba(10, 19, 38, 0.72);
+  padding: 8px 10px;
+}
+
+.round-feed-actions {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -732,6 +985,7 @@ button:hover {
   display: flex;
   gap: 8px;
   justify-content: flex-start;
+  align-items: center;
 }
 
 .round-feed-stats span {
@@ -742,7 +996,7 @@ button:hover {
   font-weight: 800;
   letter-spacing: 0.05em;
   color: #cbd8f2;
-  background: rgba(8, 16, 31, 0.56);
+  background: rgba(6, 13, 25, 0.55);
 }
 
 .feed-play-btn {
@@ -786,6 +1040,35 @@ button:hover {
   max-height: none;
   overflow: visible;
   padding-right: 0;
+}
+
+.round-feed-card {
+  border: 1px solid rgba(120, 152, 208, 0.2);
+  border-radius: 12px;
+  background: rgba(10, 19, 38, 0.74);
+  padding: 8px;
+}
+
+.round-tactical-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.round-tactical-strip span {
+  border: 1px solid rgba(120, 154, 213, 0.3);
+  background: rgba(11, 22, 42, 0.72);
+  color: #cfe0ff;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.69rem;
+  white-space: nowrap;
+}
+
+.round-tactical-strip b {
+  color: #8fb4ef;
+  font-weight: 800;
 }
 
 .round-betininho-card {
@@ -838,14 +1121,22 @@ button:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 0;
+  gap: 4px;
+  min-width: 86px;
+  width: 86px;
+  flex: 0 0 86px;
+}
+
+.kill-hs-slot {
+  width: 24px;
+  height: 24px;
+  display: inline-block;
 }
 
 .round-winner {
-  margin-top: 2px;
+  margin-top: 0;
   font-weight: 800;
-  text-align: left;
+  text-align: center;
 }
 
 .killfeed-item {
@@ -855,13 +1146,13 @@ button:hover {
   align-items: center;
   padding: 4px 8px;
   border: 1px solid #8b0000;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.68);
+  border-radius: 8px;
+  background: rgba(5, 10, 20, 0.78);
 }
 
 .killfeed-item.live {
-  grid-template-columns: 56px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 56px minmax(0, 1fr) fit-content(170px);
+  gap: 8px;
 }
 
 .kill-core {
@@ -885,8 +1176,8 @@ button:hover {
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 6px;
-  max-width: 260px;
+  gap: 5px;
+  max-width: 170px;
 }
 
 .feed-tag {
@@ -900,7 +1191,7 @@ button:hover {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   border: 1px solid rgba(130, 160, 214, 0.5);
-  background: rgba(12, 26, 50, 0.75);
+  background: rgba(9, 20, 38, 0.82);
   color: #d9e8ff;
 }
 
@@ -944,9 +1235,9 @@ button:hover {
   align-items: center;
   gap: 10px;
   border: 1px solid rgba(116, 154, 223, 0.45);
-  border-radius: 8px;
-  padding: 5px 8px;
-  background: rgba(10, 23, 43, 0.72);
+  border-radius: 10px;
+  padding: 6px 9px;
+  background: rgba(8, 18, 35, 0.82);
 }
 
 .feed-system-event.defused {
@@ -1226,6 +1517,20 @@ button:hover {
     grid-template-columns: 1fr;
   }
 
+  .round-pro-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .round-pro-head {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .round-pro-shell .round-tactical-strip {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
   .round-economy {
     border-right: 0;
     border-bottom: 1px solid rgba(125, 157, 211, 0.2);
@@ -1257,6 +1562,16 @@ button:hover {
   .round-feed-stats {
     flex-wrap: wrap;
     row-gap: 6px;
+  }
+
+  .round-feed-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .round-feed-actions {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .round-feed {
@@ -1363,6 +1678,10 @@ button:hover {
     padding: 3px 8px;
   }
 
+  .round-feed-toolbar {
+    padding: 8px;
+  }
+
   .killfeed-item.live {
     grid-template-columns: 44px minmax(0, 1fr);
     gap: 8px;
@@ -1401,5 +1720,17 @@ button:hover {
   .betininho-avatar-wrap {
     width: 96px;
     height: 110px;
+  }
+
+  .round-pro-shell {
+    padding: 10px;
+  }
+
+  .round-pro-shell .round-tactical-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .round-pro-shell .round-pro-score {
+    font-size: 0.9rem;
   }
 }

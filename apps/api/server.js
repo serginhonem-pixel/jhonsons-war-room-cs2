@@ -23,6 +23,37 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'cs2-war-room-api', now: new Date().toISOString() })
 })
 
+app.get('/api/betininho-status', async (_req, res) => {
+  const baseUrl = String(process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '')
+  const model = String(process.env.BETININHO_MODEL || 'gemma3:4b')
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 3500)
+  try {
+    const response = await fetch(`${baseUrl}/api/tags`, { signal: controller.signal })
+    const payload = await response.json().catch(() => ({}))
+    const models = Array.isArray(payload?.models) ? payload.models : []
+    const hasModel = models.some((m) => String(m?.name || '').toLowerCase() === model.toLowerCase())
+    return res.json({
+      ok: true,
+      ollamaReachable: true,
+      modelConfigured: model,
+      modelAvailable: hasModel,
+      models: models.map((m) => m?.name).filter(Boolean),
+    })
+  } catch (error) {
+    return res.json({
+      ok: false,
+      ollamaReachable: false,
+      modelConfigured: model,
+      modelAvailable: false,
+      reason: String(error?.message ?? 'ollama_unreachable'),
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+})
+
 app.post('/api/parse', express.raw({ type: 'application/octet-stream', limit: '500mb' }), (req, res) => {
   try {
     if (!req.body || !(req.body instanceof Buffer) || req.body.length === 0) {
@@ -76,4 +107,17 @@ app.post('/api/betininho-pro', async (req, res) => {
 
 app.listen(port, () => {
   console.log(`API pronta em http://localhost:${port}`)
+  const baseUrl = String(process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '')
+  const model = String(process.env.BETININHO_MODEL || 'gemma3:4b')
+  fetch(`${baseUrl}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      prompt: 'ok',
+      stream: false,
+      keep_alive: '30m',
+      options: { num_predict: 1 },
+    }),
+  }).catch(() => {})
 })
