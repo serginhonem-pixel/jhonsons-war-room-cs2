@@ -11,6 +11,12 @@ function getApiErrorMessage(response, fallbackMessage) {
   if (response?.status === 404) {
     return 'API indisponivel (/api). Rode `npm run dev` para subir web+API local ou configure `VITE_API_URL` em producao.'
   }
+  if (response?.status === 413) {
+    return 'Arquivo .dem grande demais para a API serverless atual. Use uma API dedicada (Render/Railway/Fly) em `VITE_API_URL`.'
+  }
+  if (response?.status === 502 || response?.status === 503 || response?.status === 504) {
+    return 'API de parse indisponivel no ambiente atual. Configure uma API dedicada em `VITE_API_URL`.'
+  }
   return fallbackMessage
 }
 
@@ -2015,6 +2021,12 @@ function Dashboard({ data, analysis, onReset }) {
 }
 
 async function uploadAndParseDemo(file) {
+  const usingSameOriginApi = !API_BASE
+  const FOUR_MB = 4 * 1024 * 1024
+  if (usingSameOriginApi && file.size > FOUR_MB) {
+    throw new Error('Arquivo .dem muito grande para o deploy serverless atual. Configure `VITE_API_URL` para uma API dedicada.')
+  }
+
   const body = await file.arrayBuffer()
   const response = await fetch(apiUrl('/api/parse'), {
     method: 'POST',
@@ -2026,7 +2038,7 @@ async function uploadAndParseDemo(file) {
     body,
   })
 
-  const payload = await response.json().catch(() => ({}))
+  const payload = await response.json().catch(() => null)
   if (!response.ok) {
     throw new Error(payload?.error || getApiErrorMessage(response, 'Falha ao processar demo no servidor.'))
   }

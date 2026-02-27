@@ -7,7 +7,12 @@ import { buildAnalysisReport } from '../packages/analytics/index.js'
 const require = createRequire(import.meta.url)
 
 function loadDemoParser() {
-  const lib = require('@laihoe/demoparser2')
+  let lib
+  try {
+    lib = require('@laihoe/demoparser2')
+  } catch (error) {
+    throw new Error(`Parser nativo indisponivel no servidor: ${error?.message ?? 'erro ao carregar @laihoe/demoparser2'}`)
+  }
   return {
     parseHeader: lib.parseHeader,
     parseEvents: lib.parseEvents,
@@ -56,6 +61,8 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ match, analysis })
   } catch (error) {
-    return res.status(400).json({ error: error?.message ?? 'Falha ao processar demo.' })
+    const msg = String(error?.message ?? 'Falha ao processar demo.')
+    const isInfraError = msg.includes('Parser nativo indisponivel no servidor')
+    return res.status(isInfraError ? 503 : 400).json({ error: msg })
   }
 }
