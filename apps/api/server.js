@@ -18,6 +18,13 @@ const app = express()
 const port = Number(process.env.PORT || process.env.API_PORT || 3001)
 const matchStore = new Map()
 
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-File-Name, X-File-LastModified')
+  if (req.method === 'OPTIONS') return res.status(204).end()
+  return next()
+})
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
 
