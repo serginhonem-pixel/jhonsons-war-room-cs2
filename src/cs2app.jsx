@@ -6,6 +6,13 @@ const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 const apiUrl = (path) => `${API_BASE}${path}`
 const BETININHO_AVATAR = '/data/betininho.png'
 
+function getApiErrorMessage(response, fallbackMessage) {
+  if (response?.status === 404) {
+    return 'API indisponivel (/api). Rode `npm run dev` para subir web+API local ou configure `VITE_API_URL` em producao.'
+  }
+  return fallbackMessage
+}
+
 function formatNick(nick = '') {
   return /^\d{8,}$/.test(nick) ? `Player-${nick.slice(-4)}` : nick
 }
@@ -45,6 +52,12 @@ function isLowBuyTier(tier) {
 
 function isFullBuyTier(tier) {
   return normalizeBuyTier(tier).includes('full')
+}
+
+function formatSeconds(value) {
+  const v = Number(value ?? 0)
+  if (!Number.isFinite(v)) return '0.0s'
+  return `${v.toFixed(1)}s`
 }
 
 const ITEM_PRICE = {
@@ -1466,6 +1479,24 @@ function Dashboard({ data, analysis, onReset }) {
                       <h4>Buckets buy</h4>
                       <p>{analysis?.economy?.length ?? 0}</p>
                     </article>
+                    <article>
+                      <p className="dim">Ultimo a morrer (CT)</p>
+                      <h4>{analysis?.last_alive_to_die?.team_ct_start?.nick ? formatNick(analysis.last_alive_to_die.team_ct_start.nick) : 'N/A'}</h4>
+                      <p>
+                        {analysis?.last_alive_to_die?.team_ct_start
+                          ? `${analysis.last_alive_to_die.team_ct_start.last_to_die_rounds}x | medio ${formatSeconds(analysis.last_alive_to_die.team_ct_start.avg_solo_time_s)} | total ${formatSeconds(analysis.last_alive_to_die.team_ct_start.total_solo_time_s)}`
+                          : 'Sem rounds com ultimo CT eliminado'}
+                      </p>
+                    </article>
+                    <article>
+                      <p className="dim">Ultimo a morrer (TR)</p>
+                      <h4>{analysis?.last_alive_to_die?.team_t_start?.nick ? formatNick(analysis.last_alive_to_die.team_t_start.nick) : 'N/A'}</h4>
+                      <p>
+                        {analysis?.last_alive_to_die?.team_t_start
+                          ? `${analysis.last_alive_to_die.team_t_start.last_to_die_rounds}x | medio ${formatSeconds(analysis.last_alive_to_die.team_t_start.avg_solo_time_s)} | total ${formatSeconds(analysis.last_alive_to_die.team_t_start.total_solo_time_s)}`
+                          : 'Sem rounds com ultimo TR eliminado'}
+                      </p>
+                    </article>
                   </div>
                 ) : (
                   <p className="dim">Sem analise disponivel para esta partida.</p>
@@ -1494,7 +1525,9 @@ async function uploadAndParseDemo(file) {
   })
 
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload?.error || 'Falha ao processar demo no servidor.')
+  if (!response.ok) {
+    throw new Error(payload?.error || getApiErrorMessage(response, 'Falha ao processar demo no servidor.'))
+  }
   const matchPayload = payload?.match ?? payload
   return {
     match: normalizeParsedMatch(matchPayload),
@@ -1520,7 +1553,9 @@ async function analyzeMatch(matchRaw) {
   })
 
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload?.error || 'Falha ao analisar partida.')
+  if (!response.ok) {
+    throw new Error(payload?.error || getApiErrorMessage(response, 'Falha ao analisar partida.'))
+  }
   return payload
 }
 

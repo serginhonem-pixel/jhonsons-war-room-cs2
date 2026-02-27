@@ -156,12 +156,109 @@ export function computeConsistency(match, risRows) {
   }
 }
 
+export function computeLastAliveToDie(match) {
+  const nickBySteamId = new Map()
+  for (const player of match.players ?? []) {
+    nickBySteamId.set(String(player.steam_id), String(player.nick ?? 'N/A'))
+  }
+
+  const sideStats = {
+    team_ct_start: new Map(),
+    team_t_start: new Map(),
+  }
+
+  const parseState = (state) => {
+    const [ctRaw, trRaw] = String(state ?? '5v5').split('v')
+    return {
+      ct: Number.parseInt(ctRaw, 10) || 0,
+      tr: Number.parseInt(trRaw, 10) || 0,
+    }
+  }
+
+  for (const round of match.rounds ?? []) {
+    const soloStartBySide = {
+      team_ct_start: null,
+      team_t_start: null,
+    }
+
+    const kills = (round.timeline ?? [])
+      .filter((event) => event?.event === 'kill')
+      .sort((a, b) => Number(a?.tick ?? 0) - Number(b?.tick ?? 0))
+
+    const states = Array.isArray(round.state_transitions) && round.state_transitions.length > 0
+      ? round.state_transitions.map(parseState)
+      : ['5v5'].concat(kills.map((_k, idx) => {
+          let ct = Math.max(0, 5 - (idx + 1))
+          let tr = 5
+          return `${ct}v${tr}`
+        })).map(parseState)
+
+    for (let i = 0; i < kills.length; i += 1) {
+      const kill = kills[i]
+      const victimTeam = kill?.victim_team
+      const victimSteamId = String(kill?.victim_steamid ?? '')
+      const killTime = Number(kill?.t_s ?? 0)
+      if (!victimSteamId) continue
+      if (victimTeam !== 'team_ct_start' && victimTeam !== 'team_t_start') continue
+
+      const before = states[i] ?? parseState('5v5')
+      const after = states[i + 1] ?? before
+
+      if (after.ct === 1 && soloStartBySide.team_ct_start === null) {
+        soloStartBySide.team_ct_start = killTime
+      }
+      if (after.tr === 1 && soloStartBySide.team_t_start === null) {
+        soloStartBySide.team_t_start = killTime
+      }
+
+      const beforeAlive = victimTeam === 'team_ct_start' ? before.ct : before.tr
+      if (beforeAlive !== 1) continue
+
+      const soloStart = soloStartBySide[victimTeam]
+      const duration = Math.max(0, killTime - Number(soloStart ?? killTime))
+      const current = sideStats[victimTeam].get(victimSteamId) ?? {
+        steam_id: victimSteamId,
+        nick: nickBySteamId.get(victimSteamId) ?? `Player-${victimSteamId.slice(-4)}`,
+        last_to_die_rounds: 0,
+        total_solo_time_s: 0,
+      }
+      current.last_to_die_rounds += 1
+      current.total_solo_time_s += duration
+      sideStats[victimTeam].set(victimSteamId, current)
+      soloStartBySide[victimTeam] = null
+    }
+  }
+
+  const pickBest = (side) => {
+    const rows = Array.from(sideStats[side].values())
+      .sort((a, b) => {
+        if (b.last_to_die_rounds !== a.last_to_die_rounds) return b.last_to_die_rounds - a.last_to_die_rounds
+        return b.total_solo_time_s - a.total_solo_time_s
+      })
+    if (rows.length === 0) return null
+    const best = rows[0]
+    return {
+      steam_id: best.steam_id,
+      nick: best.nick,
+      last_to_die_rounds: best.last_to_die_rounds,
+      total_solo_time_s: Number(best.total_solo_time_s.toFixed(2)),
+      avg_solo_time_s: Number((best.total_solo_time_s / Math.max(best.last_to_die_rounds, 1)).toFixed(2)),
+    }
+  }
+
+  return {
+    team_ct_start: pickBest('team_ct_start'),
+    team_t_start: pickBest('team_t_start'),
+  }
+}
+
 export function buildAnalysisReport(match) {
   const ris = computeRoundImpact(match)
   const trade = computeTradeEfficiency(match)
   const pressure = computePressure(match)
   const economy = computeEconomy(match)
   const consistency = computeConsistency(match, ris)
+  const lastAliveToDie = computeLastAliveToDie(match)
 
   return {
     match_id: match.match_id,
@@ -171,5 +268,6 @@ export function buildAnalysisReport(match) {
     pressure,
     economy,
     consistency,
+    last_alive_to_die: lastAliveToDie,
   }
 }
