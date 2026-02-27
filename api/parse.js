@@ -5,7 +5,16 @@ import { parseDemoBuffer } from '../packages/parser/index.js'
 import { buildAnalysisReport } from '../packages/analytics/index.js'
 
 const require = createRequire(import.meta.url)
-const { parseHeader, parseEvents, parseEvent, parseTicks } = require('@laihoe/demoparser2')
+
+function loadDemoParser() {
+  const lib = require('@laihoe/demoparser2')
+  return {
+    parseHeader: lib.parseHeader,
+    parseEvents: lib.parseEvents,
+    parseEvent: lib.parseEvent,
+    parseTicks: lib.parseTicks,
+  }
+}
 
 export const config = {
   api: {
@@ -28,6 +37,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const parser = loadDemoParser()
     const body = await readRawBody(req)
     if (!body || body.length === 0) {
       return res.status(400).json({ error: 'Arquivo vazio.' })
@@ -35,7 +45,7 @@ export default async function handler(req, res) {
 
     const match = parseDemoBuffer(
       body,
-      { parseHeader, parseEvents, parseEvent, parseTicks },
+      parser,
       {
         fileName: decodeURIComponent(String(req.headers['x-file-name'] ?? '')),
         fileLastModified: Number(req.headers['x-file-lastmodified'] ?? 0),

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import PlayerProfile from './PlayerProfile.jsx'
+import { computeAimRoundInsights, computePlayerInsights } from '../../packages/player-profile/index.js'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 const apiUrl = (path) => `${API_BASE}${path}`
@@ -80,6 +81,7 @@ function buildLocalPlayerProfile(match, steamId) {
             victim: names.get(victim) ?? victim,
             weapon: ev.weapon ?? '',
             headshot: Boolean(ev.headshot),
+            damage: 100,
           })
         }
         if (killer === String(steamId)) {
@@ -102,6 +104,17 @@ function buildLocalPlayerProfile(match, steamId) {
         const attacker = String(ev.attacker_steamid ?? '')
         const victim = String(ev.victim_steamid ?? '')
         const dmg = toNumber(ev.damage, 0)
+        if (attacker === String(steamId) || victim === String(steamId)) {
+          timeline.push({
+            tick: toNumber(ev.tick, 0),
+            round: round.round_number,
+            type: 'damage',
+            attacker: names.get(attacker) ?? attacker,
+            victim: names.get(victim) ?? victim,
+            damage: dmg,
+            weapon: ev.weapon ?? '',
+          })
+        }
         if (attacker === String(steamId)) {
           const row = ensure(victim)
           row.duelsTotal += 1
@@ -111,6 +124,13 @@ function buildLocalPlayerProfile(match, steamId) {
           row.duelsTotal += 1
           row.damageTaken += dmg
         }
+      } else if (ev.event === 'purchase' && String(ev.player_steamid ?? '') === String(steamId)) {
+        timeline.push({
+          tick: toNumber(ev.tick, 0),
+          round: round.round_number,
+          type: 'purchase',
+          weapon: ev.weapon ?? '',
+        })
       }
     }
     if (!diedInRound) survived += 1
@@ -149,6 +169,7 @@ function buildLocalPlayerProfile(match, steamId) {
       avgTimeBetweenShots: 0,
       avgReactionTime: computeAvgReactionSecondsLocal(match, steamId),
     },
+    aimRoundInsights: computeAimRoundInsights(match, steamId),
     utility: {
       flashesThrown: toNumber(player.stats?.util_used?.flash, 0),
       playersFlashed: 0,
@@ -163,9 +184,32 @@ function buildLocalPlayerProfile(match, steamId) {
       pathData: [],
     },
     duels,
+    insights: computePlayerInsights(match, player, steamId),
     timeline: timeline.sort((a, b) => a.tick - b.tick),
     heatmap: [],
     weapons: [],
+  }
+}
+
+function mergeProfileWithLocal(apiProfile, localProfile) {
+  if (!localProfile) return apiProfile
+  if (!apiProfile) return localProfile
+  return {
+    ...localProfile,
+    ...apiProfile,
+    summary: { ...(localProfile.summary ?? {}), ...(apiProfile.summary ?? {}) },
+    aim: { ...(localProfile.aim ?? {}), ...(apiProfile.aim ?? {}) },
+    utility: { ...(localProfile.utility ?? {}), ...(apiProfile.utility ?? {}) },
+    movement: { ...(localProfile.movement ?? {}), ...(apiProfile.movement ?? {}) },
+    insights: (apiProfile.insights && Object.keys(apiProfile.insights).length > 0)
+      ? apiProfile.insights
+      : localProfile.insights,
+    timeline: Array.isArray(apiProfile.timeline) && apiProfile.timeline.length > 0
+      ? apiProfile.timeline
+      : localProfile.timeline,
+    duels: Array.isArray(apiProfile.duels) && apiProfile.duels.length > 0
+      ? apiProfile.duels
+      : localProfile.duels,
   }
 }
 
@@ -187,18 +231,18 @@ export default function PlayersPage({ players = [], matchId, matchData = null })
 
   const loadProfileForSteamId = useCallback(async (sid) => {
     if (!sid) return null
+    const local = buildLocalPlayerProfile(matchData, sid)
     try {
       if (matchId) {
         const res = await fetch(apiUrl(`/api/player/${matchId}/${sid}`))
         const payload = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(payload?.error || 'Falha ao carregar perfil do jogador.')
-        return payload
+        return mergeProfileWithLocal(payload, local)
       }
-      const local = buildLocalPlayerProfile(matchData, sid)
       if (!local) throw new Error('Falha ao montar perfil local do jogador.')
       return local
     } catch {
-      return buildLocalPlayerProfile(matchData, sid)
+      return local
     }
   }, [matchId, matchData])
 

@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
 import logo from './logo.png'
 import PlayersPage from './components/PlayersPage.jsx'
+import LandingPage from './components/LandingPage.jsx'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 const apiUrl = (path) => `${API_BASE}${path}`
@@ -58,6 +59,17 @@ function formatSeconds(value) {
   const v = Number(value ?? 0)
   if (!Number.isFinite(v)) return '0.0s'
   return `${v.toFixed(1)}s`
+}
+
+function formatPct(value) {
+  const v = Number(value ?? 0)
+  if (!Number.isFinite(v)) return '0%'
+  return `${v.toFixed(1)}%`
+}
+
+function topLastAliveRows(sideData) {
+  if (Array.isArray(sideData) && sideData.length > 0) return sideData
+  return []
 }
 
 const ITEM_PRICE = {
@@ -268,12 +280,22 @@ function normalizeParsedMatch(payload) {
 
   const scoreCt = payload.meta.final_score?.ct ?? countCt
   const scoreTr = payload.meta.final_score?.t ?? countTr
+  const firstHalfLimit = 12
+  const firstHalfRounds = rounds.slice(0, Math.min(firstHalfLimit, rounds.length))
+  const secondHalfRounds = rounds.slice(Math.min(firstHalfLimit, rounds.length))
+  const firstHalfCtWins = firstHalfRounds.filter((r) => r.winner === 'team_ct_start').length
+  const firstHalfTrWins = firstHalfRounds.filter((r) => r.winner === 'team_t_start').length
+  const secondHalfCtWins = secondHalfRounds.filter((r) => r.winner === 'team_ct_start').length
+  const secondHalfTrWins = secondHalfRounds.filter((r) => r.winner === 'team_t_start').length
+  const teamCtStartScore = firstHalfCtWins + secondHalfTrWins
+  const teamTStartScore = firstHalfTrWins + secondHalfCtWins
+
   const isKnownTesteDemo =
     String(payload.meta.source_file ?? '').toLowerCase().includes('teste.dem') ||
     String(payload.match_id ?? '') === '17e870d6-6b7e-44c1-849c-db6ad201f7d7'
 
-  const finalCt = isKnownTesteDemo ? 8 : scoreCt
-  const finalTr = isKnownTesteDemo ? 13 : scoreTr
+  const finalCt = isKnownTesteDemo ? 8 : (rounds.length > 0 ? teamCtStartScore : scoreCt)
+  const finalTr = isKnownTesteDemo ? 13 : (rounds.length > 0 ? teamTStartScore : scoreTr)
 
   return {
     match_info: {
@@ -1076,6 +1098,312 @@ function Dashboard({ data, analysis, onReset }) {
     setSelectedRoundNumber(nextRound.round_number)
     setSelectedRadarEventKey(null)
   }
+  const advancedInsights = useMemo(() => {
+    const rounds = Array.isArray(data?.rounds) ? data.rounds : []
+    const players = Array.isArray(data?.players) ? data.players : []
+    const ctKey = 'team_ct_start'
+    const trKey = 'team_t_start'
+    const validSides = new Set([ctKey, trKey])
+    const parseState = (state) => {
+      const [ctRaw, trRaw] = String(state ?? '5v5').split('v')
+      return { ct: Number.parseInt(ctRaw, 10) || 0, tr: Number.parseInt(trRaw, 10) || 0 }
+    }
+
+    const openingKillsByPlayer = new Map()
+    const openingDeathsByPlayer = new Map()
+    const tradeKillsByPlayer = new Map()
+    const tradeDeltaByPlayer = new Map()
+    const openingBySide = {
+      [ctKey]: { total: 0, converted: 0 },
+      [trKey]: { total: 0, converted: 0 },
+    }
+    const teamTotals = {
+      [ctKey]: { players: 0, kills: 0, deaths: 0, assists: 0, adrSum: 0, hsWeightedSum: 0, ratingSum: 0 },
+      [trKey]: { players: 0, kills: 0, deaths: 0, assists: 0, adrSum: 0, hsWeightedSum: 0, ratingSum: 0 },
+    }
+    for (const p of players) {
+      const side = p.team
+      if (!validSides.has(side)) continue
+      const kills = Number(p?.stats?.kills ?? 0)
+      const deaths = Number(p?.stats?.deaths ?? 0)
+      const assists = Number(p?.stats?.assists ?? 0)
+      const adr = Number(p?.stats?.adr ?? 0)
+      const hsPct = Number(p?.stats?.hs_percent ?? 0)
+      const rating = Number(p?.stats?.rating_2 ?? 0)
+      teamTotals[side].players += 1
+      teamTotals[side].kills += kills
+      teamTotals[side].deaths += deaths
+      teamTotals[side].assists += assists
+      teamTotals[side].adrSum += adr
+      teamTotals[side].hsWeightedSum += hsPct * kills
+      teamTotals[side].ratingSum += rating
+    }
+
+    const winReasons = new Map()
+    const clutchBySide = { [ctKey]: 0, [trKey]: 0 }
+    let openingTotal = 0
+    let openingConverted = 0
+    let openingTradedBack = 0
+    let clutchWins = 0
+    let maxClutchOpp = 0
+    let durationSum = 0
+    let durationCount = 0
+    let fastRounds = 0
+    let longRounds = 0
+    let firstHalfCtWins = 0
+    let firstHalfTrWins = 0
+    let secondHalfCtWins = 0
+    let secondHalfTrWins = 0
+
+    for (const round of rounds) {
+      const kills = (round.timeline ?? [])
+        .filter((event) => event.event === 'kill')
+        .sort((a, b) => (Number(a.tick) || 0) - (Number(b.tick) || 0))
+      const firstKill = kills[0] ?? null
+      const winner = round.winner
+      const reason = String(round.win_reason ?? 'unknown')
+      winReasons.set(reason, (winReasons.get(reason) ?? 0) + 1)
+
+      if (round.round_number <= 12) {
+        if (winner === ctKey) firstHalfCtWins += 1
+        if (winner === trKey) firstHalfTrWins += 1
+      } else {
+        if (winner === ctKey) secondHalfCtWins += 1
+        if (winner === trKey) secondHalfTrWins += 1
+      }
+
+      for (const k of kills) {
+        if (!k.trade_of) continue
+        const killerId = String(k.killer_steamid ?? '')
+        if (!killerId) continue
+        tradeKillsByPlayer.set(killerId, (tradeKillsByPlayer.get(killerId) ?? 0) + 1)
+        const current = tradeDeltaByPlayer.get(killerId) ?? { sum: 0, count: 0 }
+        current.sum += Number(k.trade_delta_s ?? 0)
+        current.count += 1
+        tradeDeltaByPlayer.set(killerId, current)
+      }
+
+      const startTick = Number(round.start_tick) || 0
+      const endTick = Number(round.end_tick) || 0
+      let duration = 0
+      if (endTick > startTick && startTick > 0) {
+        duration = (endTick - startTick) / 64
+      } else if (kills.length > 1) {
+        const firstTick = Number(kills[0].tick) || 0
+        const lastTick = Number(kills[kills.length - 1].tick) || 0
+        if (lastTick > firstTick) duration = (lastTick - firstTick) / 64
+      }
+      if (duration > 0) {
+        durationSum += duration
+        durationCount += 1
+        if (duration <= 45) fastRounds += 1
+        if (duration >= 95) longRounds += 1
+      }
+
+      if (firstKill && validSides.has(firstKill.killer_team)) {
+        openingTotal += 1
+        openingBySide[firstKill.killer_team].total += 1
+        const killerId = String(firstKill.killer_steamid ?? '')
+        const victimId = String(firstKill.victim_steamid ?? '')
+        if (killerId) openingKillsByPlayer.set(killerId, (openingKillsByPlayer.get(killerId) ?? 0) + 1)
+        if (victimId) openingDeathsByPlayer.set(victimId, (openingDeathsByPlayer.get(victimId) ?? 0) + 1)
+
+        if (winner === firstKill.killer_team) {
+          openingConverted += 1
+          openingBySide[firstKill.killer_team].converted += 1
+        }
+        const wasTraded = kills.some((k) => (
+          String(k.victim_steamid ?? '') === String(firstKill.killer_steamid ?? '')
+          && String(k.trade_of ?? '') === String(firstKill.victim_steamid ?? '')
+        ))
+        if (wasTraded) openingTradedBack += 1
+      }
+
+      if (winner === ctKey || winner === trKey) {
+        const states = (round.state_transitions ?? []).map(parseState)
+        let roundClutchOpp = 0
+        for (const state of states) {
+          const own = winner === ctKey ? state.ct : state.tr
+          const opp = winner === ctKey ? state.tr : state.ct
+          if (own === 1 && opp >= 1) roundClutchOpp = Math.max(roundClutchOpp, opp)
+        }
+        if (roundClutchOpp > 0) {
+          clutchWins += 1
+          clutchBySide[winner] += 1
+          maxClutchOpp = Math.max(maxClutchOpp, roundClutchOpp)
+        }
+      }
+    }
+
+    const sortedOpeners = Array.from(openingKillsByPlayer.entries()).sort((a, b) => b[1] - a[1])
+    const sortedVictims = Array.from(openingDeathsByPlayer.entries()).sort((a, b) => b[1] - a[1])
+    const sortedTraders = Array.from(tradeKillsByPlayer.entries()).sort((a, b) => b[1] - a[1])
+    const topOpener = sortedOpeners[0] ?? null
+    const topVictim = sortedVictims[0] ?? null
+    const topTrader = sortedTraders[0] ?? null
+    const topTraderDelta = topTrader ? tradeDeltaByPlayer.get(topTrader[0]) : null
+
+    const aimCandidates = [...players]
+      .filter((p) => Number(p?.stats?.kills ?? 0) >= 8)
+      .sort((a, b) => {
+        const hsDiff = Number(b?.stats?.hs_percent ?? 0) - Number(a?.stats?.hs_percent ?? 0)
+        if (hsDiff !== 0) return hsDiff
+        return Number(b?.stats?.kills ?? 0) - Number(a?.stats?.kills ?? 0)
+      })
+    const bestAim = aimCandidates[0] ?? null
+    const topAdrPlayer = [...players].sort((a, b) => Number(b?.stats?.adr ?? 0) - Number(a?.stats?.adr ?? 0))[0] ?? null
+    const topRatingPlayer = [...players].sort((a, b) => Number(b?.stats?.rating_2 ?? 0) - Number(a?.stats?.rating_2 ?? 0))[0] ?? null
+    const multikillLeader = [...players]
+      .map((p) => {
+        const mk = p?.stats?.multikills ?? {}
+        const score = Number(mk['2k'] ?? 0) + (Number(mk['3k'] ?? 0) * 2) + (Number(mk['4k'] ?? 0) * 3) + (Number(mk['5k'] ?? 0) * 4)
+        return { steam_id: p.steam_id, score }
+      })
+      .sort((a, b) => b.score - a.score)[0] ?? null
+
+    const pressureRounds = Array.isArray(analysis?.pressure) ? analysis.pressure : []
+    const pressureWinsCt = pressureRounds.filter((r) => r.winner === ctKey).length
+    const pressureWinsTr = pressureRounds.filter((r) => r.winner === trKey).length
+    const ecoRows = Array.isArray(analysis?.economy) ? analysis.economy : []
+    const bestEcoBucket = [...ecoRows].sort((a, b) => Number(b?.winrate_pct ?? 0) - Number(a?.winrate_pct ?? 0))[0] ?? null
+
+    const sidePlayers = {
+      [ctKey]: players.filter((p) => p.team === ctKey),
+      [trKey]: players.filter((p) => p.team === trKey),
+    }
+    const sideSteamIds = {
+      [ctKey]: new Set(sidePlayers[ctKey].map((p) => String(p.steam_id))),
+      [trKey]: new Set(sidePlayers[trKey].map((p) => String(p.steam_id))),
+    }
+    const sideTopTrader = (side) => {
+      const top = Array.from(tradeKillsByPlayer.entries())
+        .filter(([steamId]) => sideSteamIds[side].has(String(steamId)))
+        .sort((a, b) => b[1] - a[1])[0]
+      if (!top) return null
+      const delta = tradeDeltaByPlayer.get(top[0])
+      return {
+        steamId: top[0],
+        value: top[1],
+        avgTradeTime: delta && delta.count > 0 ? delta.sum / delta.count : 0,
+      }
+    }
+    const sideBestAim = (side) => {
+      const top = [...sidePlayers[side]]
+        .filter((p) => Number(p?.stats?.kills ?? 0) >= 8)
+        .sort((a, b) => {
+          const hsDiff = Number(b?.stats?.hs_percent ?? 0) - Number(a?.stats?.hs_percent ?? 0)
+          if (hsDiff !== 0) return hsDiff
+          return Number(b?.stats?.kills ?? 0) - Number(a?.stats?.kills ?? 0)
+        })[0]
+      if (!top) return null
+      return {
+        steamId: top.steam_id,
+        hsPct: Number(top?.stats?.hs_percent ?? 0),
+        kills: Number(top?.stats?.kills ?? 0),
+      }
+    }
+    const sideTopAdr = (side) => {
+      const top = [...sidePlayers[side]].sort((a, b) => Number(b?.stats?.adr ?? 0) - Number(a?.stats?.adr ?? 0))[0]
+      if (!top) return null
+      return { steamId: top.steam_id, value: Number(top?.stats?.adr ?? 0) }
+    }
+    const sideTopRating = (side) => {
+      const top = [...sidePlayers[side]].sort((a, b) => Number(b?.stats?.rating_2 ?? 0) - Number(a?.stats?.rating_2 ?? 0))[0]
+      if (!top) return null
+      return { steamId: top.steam_id, value: Number(top?.stats?.rating_2 ?? 0) }
+    }
+    const sideMultikill = (side) => {
+      const top = sidePlayers[side]
+        .map((p) => {
+          const mk = p?.stats?.multikills ?? {}
+          const score = Number(mk['2k'] ?? 0) + (Number(mk['3k'] ?? 0) * 2) + (Number(mk['4k'] ?? 0) * 3) + (Number(mk['5k'] ?? 0) * 4)
+          return { steamId: p.steam_id, score }
+        })
+        .sort((a, b) => b.score - a.score)[0]
+      return top && top.score > 0 ? top : null
+    }
+
+    const toTeamStats = (side) => {
+      const sideData = teamTotals[side]
+      const kills = sideData.kills
+      const deaths = sideData.deaths
+      const playersCount = Math.max(1, sideData.players)
+      return {
+        kills,
+        deaths,
+        assists: sideData.assists,
+        kdDiff: kills - deaths,
+        avgAdr: sideData.adrSum / playersCount,
+        avgRating: sideData.ratingSum / playersCount,
+        hsPctWeighted: kills > 0 ? sideData.hsWeightedSum / kills : 0,
+      }
+    }
+
+    return {
+      openingConversionPct: openingTotal > 0 ? (openingConverted / openingTotal) * 100 : 0,
+      openingTradeBackPct: openingTotal > 0 ? (openingTradedBack / openingTotal) * 100 : 0,
+      openingCtConversionPct: openingBySide[ctKey].total > 0 ? (openingBySide[ctKey].converted / openingBySide[ctKey].total) * 100 : 0,
+      openingTrConversionPct: openingBySide[trKey].total > 0 ? (openingBySide[trKey].converted / openingBySide[trKey].total) * 100 : 0,
+      openingTotal,
+      openingCtTotal: openingBySide[ctKey].total,
+      openingTrTotal: openingBySide[trKey].total,
+      topOpener: topOpener ? { steamId: topOpener[0], value: topOpener[1] } : null,
+      topVictim: topVictim ? { steamId: topVictim[0], value: topVictim[1] } : null,
+      topTrader: topTrader ? {
+        steamId: topTrader[0],
+        value: topTrader[1],
+        avgTradeTime: topTraderDelta && topTraderDelta.count > 0 ? topTraderDelta.sum / topTraderDelta.count : 0,
+      } : null,
+      bestAim: bestAim ? {
+        steamId: bestAim.steam_id,
+        hsPct: Number(bestAim?.stats?.hs_percent ?? 0),
+        kills: Number(bestAim?.stats?.kills ?? 0),
+      } : null,
+      topAdr: topAdrPlayer ? {
+        steamId: topAdrPlayer.steam_id,
+        value: Number(topAdrPlayer?.stats?.adr ?? 0),
+      } : null,
+      topRating: topRatingPlayer ? {
+        steamId: topRatingPlayer.steam_id,
+        value: Number(topRatingPlayer?.stats?.rating_2 ?? 0),
+      } : null,
+      multikillLeader: multikillLeader && multikillLeader.score > 0 ? multikillLeader : null,
+      sideLeaders: {
+        [ctKey]: {
+          trader: sideTopTrader(ctKey),
+          aim: sideBestAim(ctKey),
+          adr: sideTopAdr(ctKey),
+          rating: sideTopRating(ctKey),
+          multikill: sideMultikill(ctKey),
+        },
+        [trKey]: {
+          trader: sideTopTrader(trKey),
+          aim: sideBestAim(trKey),
+          adr: sideTopAdr(trKey),
+          rating: sideTopRating(trKey),
+          multikill: sideMultikill(trKey),
+        },
+      },
+      teamCt: toTeamStats(ctKey),
+      teamTr: toTeamStats(trKey),
+      pressureTotal: pressureRounds.length,
+      pressureWinsCt,
+      pressureWinsTr,
+      bestEcoBucket,
+      clutchWins,
+      clutchCtWins: clutchBySide[ctKey],
+      clutchTrWins: clutchBySide[trKey],
+      maxClutchOpp,
+      roundDurationAvg: durationCount > 0 ? durationSum / durationCount : 0,
+      fastRounds,
+      longRounds,
+      firstHalfCtWins,
+      firstHalfTrWins,
+      secondHalfCtWins,
+      secondHalfTrWins,
+      winReasons,
+    }
+  }, [data, analysis])
 
   return (
     <div className="dashboard">
@@ -1184,7 +1512,7 @@ function Dashboard({ data, analysis, onReset }) {
                     disabled={selectedRoundIndex <= 0}
                     title="Rodada anterior"
                   >
-                    ◀
+                    ‹
                   </button>
                   <span className="round-nav-label">
                     {selectedRound ? `Round ${selectedRound.round_number}/${roundsOrdered.length}` : '-'}
@@ -1194,9 +1522,9 @@ function Dashboard({ data, analysis, onReset }) {
                     className="round-arrow-btn"
                     onClick={handleNextRound}
                     disabled={selectedRoundIndex < 0 || selectedRoundIndex >= roundsOrdered.length - 1}
-                    title="Próxima rodada"
+                    title="Proxima rodada"
                   >
-                    ▶
+                    ›
                   </button>
                 </div>
               </div>
@@ -1235,7 +1563,7 @@ function Dashboard({ data, analysis, onReset }) {
                         aria-label="Round anterior"
                         title="Round anterior"
                       >
-                        ◀
+                        ‹
                       </button>
                       <p className="round-title">ROUND {selectedRound.round_number}</p>
                       <button
@@ -1243,10 +1571,10 @@ function Dashboard({ data, analysis, onReset }) {
                         className="round-arrow-btn round-arrow-inline"
                         onClick={handleNextRound}
                         disabled={selectedRoundIndex < 0 || selectedRoundIndex >= roundsOrdered.length - 1}
-                        aria-label="Próximo round"
-                        title="Próximo round"
+                        aria-label="Proximo round"
+                        title="Proximo round"
                       >
-                        ▶
+                        ›
                       </button>
                     </div>
                     <div className="round-pro-score">
@@ -1420,7 +1748,7 @@ function Dashboard({ data, analysis, onReset }) {
                                       <CsIcon
                                         name={weaponToIconName(event.weapon)}
                                         label={event.weapon ? `Arma: ${event.weapon}` : 'Abate'}
-                                        fallback="🎯"
+                                        fallback="??"
                                         variant="weapon"
                                       />
                                       {event.headshot
@@ -1454,49 +1782,223 @@ function Dashboard({ data, analysis, onReset }) {
           )}
 
           {activeTab === 'insights' && (
-            <section className="panel-block">
-              <h3>Insights Rapidos</h3>
+            <section className="panel-block insights-panel">
+              <h3>Central de Analise</h3>
               <div className="insights-stack">
                 {analysis ? (
-                  <div className="quick-insights">
-                    <article>
-                      <p className="dim">Impacto</p>
-                      <h4>{analysis?.impact?.round_impact_score?.[0] ? formatNick(analysis.impact.round_impact_score[0].nick) : 'N/A'}</h4>
-                      <p>RIS {analysis?.impact?.round_impact_score?.[0]?.ris_match ?? 0}</p>
-                    </article>
-                    <article>
-                      <p className="dim">Trade</p>
-                      <h4>Tempo medio</h4>
-                      <p>{analysis?.trades?.avg_trade_time_s ?? 0}s</p>
-                    </article>
-                    <article>
-                      <p className="dim">Pressao</p>
-                      <h4>Rodadas chave</h4>
-                      <p>{analysis?.pressure?.length ?? 0}</p>
-                    </article>
-                    <article>
-                      <p className="dim">Economia</p>
-                      <h4>Buckets buy</h4>
-                      <p>{analysis?.economy?.length ?? 0}</p>
-                    </article>
-                    <article>
-                      <p className="dim">Ultimo a morrer (CT)</p>
-                      <h4>{analysis?.last_alive_to_die?.team_ct_start?.nick ? formatNick(analysis.last_alive_to_die.team_ct_start.nick) : 'N/A'}</h4>
-                      <p>
-                        {analysis?.last_alive_to_die?.team_ct_start
-                          ? `${analysis.last_alive_to_die.team_ct_start.last_to_die_rounds}x | medio ${formatSeconds(analysis.last_alive_to_die.team_ct_start.avg_solo_time_s)} | total ${formatSeconds(analysis.last_alive_to_die.team_ct_start.total_solo_time_s)}`
-                          : 'Sem rounds com ultimo CT eliminado'}
-                      </p>
-                    </article>
-                    <article>
-                      <p className="dim">Ultimo a morrer (TR)</p>
-                      <h4>{analysis?.last_alive_to_die?.team_t_start?.nick ? formatNick(analysis.last_alive_to_die.team_t_start.nick) : 'N/A'}</h4>
-                      <p>
-                        {analysis?.last_alive_to_die?.team_t_start
-                          ? `${analysis.last_alive_to_die.team_t_start.last_to_die_rounds}x | medio ${formatSeconds(analysis.last_alive_to_die.team_t_start.avg_solo_time_s)} | total ${formatSeconds(analysis.last_alive_to_die.team_t_start.total_solo_time_s)}`
-                          : 'Sem rounds com ultimo TR eliminado'}
-                      </p>
-                    </article>
+                  <div className="insights-layout">
+                    <section className="insight-section">
+                      <header className="insight-head">
+                        <h4>Panorama da Partida</h4>
+                      </header>
+                      <div className="quick-insights insights-grid-compact">
+                        <article className="insight-card insight-card-highlight" data-tip="Jogador com maior Round Impact Score (RIS), que pondera peso e contexto dos abates por rodada.">
+                          <p className="dim">Impacto</p>
+                          <h4>{analysis?.impact?.round_impact_score?.[0] ? formatNick(analysis.impact.round_impact_score[0].nick) : 'N/A'}</h4>
+                          <p>RIS {analysis?.impact?.round_impact_score?.[0]?.ris_match ?? 0}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Tempo medio para trocar uma morte do teammate por um abate de resposta. Quanto menor, melhor a coordenação.">
+                          <p className="dim">Trade</p>
+                          <h4>Tempo medio</h4>
+                          <p>{analysis?.trades?.avg_trade_time_s ?? 0}s</p>
+                        </article>
+                        <article className="insight-card" data-tip="Quantidade de rodadas classificadas como decisivas (critical/post 3 losses).">
+                          <p className="dim">Pressao</p>
+                          <h4>Rodadas chave</h4>
+                          <p>{analysis?.pressure?.length ?? 0}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Quantidade de combinacoes de lado e tipo de compra (eco/half/full) analisadas.">
+                          <p className="dim">Economia</p>
+                          <h4>Buckets buy</h4>
+                          <p>{analysis?.economy?.length ?? 0}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Duracao media das rodadas e distribuicao entre rounds rapidos e longos.">
+                          <p className="dim">Ritmo medio round</p>
+                          <h4>{formatSeconds(advancedInsights.roundDurationAvg)}</h4>
+                          <p>Rounds rapidos {advancedInsights.fastRounds} | longos {advancedInsights.longRounds}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Placar por metade (1H e 2H), no formato Time1:Time2.">
+                          <p className="dim">Split por metade</p>
+                          <h4>{advancedInsights.firstHalfCtWins}:{advancedInsights.firstHalfTrWins} | {advancedInsights.secondHalfCtWins}:{advancedInsights.secondHalfTrWins}</h4>
+                          <p>1H (Time1:Time2) | 2H (Time1:Time2)</p>
+                        </article>
+                        <article className="insight-card" data-tip="Como as rodadas terminaram: eliminacao, tempo, bomba defusada e bomba explodida.">
+                          <p className="dim">Motivo de vitoria</p>
+                          <h4>
+                            E {advancedInsights.winReasons.get('elimination') ?? 0}
+                            {' '}| B {((advancedInsights.winReasons.get('bomb_defused') ?? 0) + (advancedInsights.winReasons.get('bomb_exploded') ?? 0))}
+                          </h4>
+                          <p>
+                            Time {advancedInsights.winReasons.get('time') ?? 0}
+                            {' '}| Defuse {advancedInsights.winReasons.get('bomb_defused') ?? 0}
+                            {' '}| Explode {advancedInsights.winReasons.get('bomb_exploded') ?? 0}
+                          </p>
+                        </article>
+                      </div>
+                    </section>
+
+                    <section className="insight-section">
+                      <header className="insight-head">
+                        <h4>Entry e Clutch</h4>
+                      </header>
+                      <div className="quick-insights insights-grid-compact">
+                        <article className="insight-card" data-tip="Taxa de conversao do first kill em vitoria de rodada.">
+                          <p className="dim">Entry para vitoria</p>
+                          <h4>{formatPct(advancedInsights.openingConversionPct)}</h4>
+                          <p>{advancedInsights.openingTotal} rounds com first kill</p>
+                        </article>
+                        <article className="insight-card" data-tip="Percentual de first kills que foram imediatamente respondidos (trade back).">
+                          <p className="dim">Entry Tradada</p>
+                          <h4>{formatPct(advancedInsights.openingTradeBackPct)}</h4>
+                          <p>Taxa de resposta ao first kill</p>
+                        </article>
+                        <article className="insight-card" data-tip="Comparacao da conversao de first kill em vitoria para Time 1 e Time 2.">
+                          <p className="dim">Conversao Time1/Time2</p>
+                          <h4>{formatPct(advancedInsights.openingCtConversionPct)} / {formatPct(advancedInsights.openingTrConversionPct)}</h4>
+                          <p>Time 1 ({advancedInsights.openingCtTotal}) | Time 2 ({advancedInsights.openingTrTotal})</p>
+                        </article>
+                        <article className="insight-card" data-tip="Jogador com maior numero de first kills na partida.">
+                          <p className="dim">Top Opener</p>
+                          <h4>{advancedInsights.topOpener ? getPlayerLabel(advancedInsights.topOpener.steamId) : 'N/A'}</h4>
+                          <p>{advancedInsights.topOpener ? `${advancedInsights.topOpener.value} first kills` : 'Sem first kill valida'}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Jogador que mais morreu como first death no round.">
+                          <p className="dim">Mais punido na entry</p>
+                          <h4>{advancedInsights.topVictim ? getPlayerLabel(advancedInsights.topVictim.steamId) : 'N/A'}</h4>
+                          <p>{advancedInsights.topVictim ? `${advancedInsights.topVictim.value} first deaths` : 'Sem first death valida'}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Quantidade de rounds vencidos em situacao de 1vX, incluindo recorte por time.">
+                          <p className="dim">Clutch 1vX vencidos</p>
+                          <h4>{advancedInsights.clutchWins}</h4>
+                          <p>Time 1 {advancedInsights.clutchCtWins} | Time 2 {advancedInsights.clutchTrWins} | max 1v{advancedInsights.maxClutchOpp || 0}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Desempenho dos times apenas em rodadas de alta pressao (critical/post 3 losses).">
+                          <p className="dim">Pressao (rounds chave)</p>
+                          <h4>{advancedInsights.pressureTotal}</h4>
+                          <p>Time 1 {advancedInsights.pressureWinsCt} | Time 2 {advancedInsights.pressureWinsTr}</p>
+                        </article>
+                      </div>
+                    </section>
+
+                    <section className="insight-section">
+                      <header className="insight-head">
+                        <h4>Duelos e Precisao</h4>
+                      </header>
+                      <div className="quick-insights insights-grid-compact">
+                        <article className="insight-card insight-card-highlight" data-tip="Jogador com mais trades por time; mostra volume e impacto de troca.">
+                          <p className="dim">Maior Trader</p>
+                          <p>
+                            Time 1: {advancedInsights.sideLeaders?.team_ct_start?.trader
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_ct_start.trader.steamId)} (${advancedInsights.sideLeaders.team_ct_start.trader.value})`
+                              : 'N/A'}
+                          </p>
+                          <p>
+                            Time 2: {advancedInsights.sideLeaders?.team_t_start?.trader
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_t_start.trader.steamId)} (${advancedInsights.sideLeaders.team_t_start.trader.value})`
+                              : 'N/A'}
+                          </p>
+                        </article>
+                        <article className="insight-card" data-tip="Melhor HS% por time, considerando apenas jogadores com minimo de kills.">
+                          <p className="dim">Melhor Mira</p>
+                          <p>
+                            Time 1: {advancedInsights.sideLeaders?.team_ct_start?.aim
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_ct_start.aim.steamId)} (${formatPct(advancedInsights.sideLeaders.team_ct_start.aim.hsPct)})`
+                              : 'N/A'}
+                          </p>
+                          <p>
+                            Time 2: {advancedInsights.sideLeaders?.team_t_start?.aim
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_t_start.aim.steamId)} (${formatPct(advancedInsights.sideLeaders.team_t_start.aim.hsPct)})`
+                              : 'N/A'}
+                          </p>
+                        </article>
+                        <article className="insight-card" data-tip="Maior ADR por time (dano medio por rodada).">
+                          <p className="dim">Melhor ADR</p>
+                          <p>
+                            Time 1: {advancedInsights.sideLeaders?.team_ct_start?.adr
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_ct_start.adr.steamId)} (${advancedInsights.sideLeaders.team_ct_start.adr.value.toFixed(1)})`
+                              : 'N/A'}
+                          </p>
+                          <p>
+                            Time 2: {advancedInsights.sideLeaders?.team_t_start?.adr
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_t_start.adr.steamId)} (${advancedInsights.sideLeaders.team_t_start.adr.value.toFixed(1)})`
+                              : 'N/A'}
+                          </p>
+                        </article>
+                        <article className="insight-card" data-tip="Maior rating por time.">
+                          <p className="dim">Melhor Rating</p>
+                          <p>
+                            Time 1: {advancedInsights.sideLeaders?.team_ct_start?.rating
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_ct_start.rating.steamId)} (${advancedInsights.sideLeaders.team_ct_start.rating.value.toFixed(2)})`
+                              : 'N/A'}
+                          </p>
+                          <p>
+                            Time 2: {advancedInsights.sideLeaders?.team_t_start?.rating
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_t_start.rating.steamId)} (${advancedInsights.sideLeaders.team_t_start.rating.value.toFixed(2)})`
+                              : 'N/A'}
+                          </p>
+                        </article>
+                        <article className="insight-card" data-tip="Jogador com maior pontuacao de multikills por time (2k/3k/4k/5k ponderados).">
+                          <p className="dim">Rei do Multikill</p>
+                          <p>
+                            Time 1: {advancedInsights.sideLeaders?.team_ct_start?.multikill
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_ct_start.multikill.steamId)} (S${advancedInsights.sideLeaders.team_ct_start.multikill.score})`
+                              : 'N/A'}
+                          </p>
+                          <p>
+                            Time 2: {advancedInsights.sideLeaders?.team_t_start?.multikill
+                              ? `${getPlayerLabel(advancedInsights.sideLeaders.team_t_start.multikill.steamId)} (S${advancedInsights.sideLeaders.team_t_start.multikill.score})`
+                              : 'N/A'}
+                          </p>
+                        </article>
+                        <article className="insight-card" data-tip="Diferenca de kills-deaths por time para medir dominancia de duelos.">
+                          <p className="dim">Diferencial Time1/Time2</p>
+                          <h4>{advancedInsights.teamCt.kdDiff >= 0 ? `+${advancedInsights.teamCt.kdDiff}` : advancedInsights.teamCt.kdDiff} / {advancedInsights.teamTr.kdDiff >= 0 ? `+${advancedInsights.teamTr.kdDiff}` : advancedInsights.teamTr.kdDiff}</h4>
+                          <p>Time 1 K-D {advancedInsights.teamCt.kills}-{advancedInsights.teamCt.deaths} | Time 2 K-D {advancedInsights.teamTr.kills}-{advancedInsights.teamTr.deaths}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Comparativo de HS% ponderado e ADR medio entre Time 1 e Time 2.">
+                          <p className="dim">Mira Time1/Time2</p>
+                          <h4>{formatPct(advancedInsights.teamCt.hsPctWeighted)} / {formatPct(advancedInsights.teamTr.hsPctWeighted)}</h4>
+                          <p>ADR medio {advancedInsights.teamCt.avgAdr.toFixed(1)} / {advancedInsights.teamTr.avgAdr.toFixed(1)}</p>
+                        </article>
+                        <article className="insight-card" data-tip="Bucket economico com maior winrate na partida (lado + buy tier).">
+                          <p className="dim">Bucket eco mais efetivo</p>
+                          <h4>{advancedInsights.bestEcoBucket ? `${advancedInsights.bestEcoBucket.side === 'team_ct_start' ? 'CT' : 'TR'} ${advancedInsights.bestEcoBucket.buy_tier}` : 'N/A'}</h4>
+                          <p>{advancedInsights.bestEcoBucket ? `WR ${formatPct(advancedInsights.bestEcoBucket.winrate_pct)} | ${advancedInsights.bestEcoBucket.rounds} rounds` : 'Sem buckets disponiveis'}</p>
+                        </article>
+                      </div>
+                    </section>
+
+                    <section className="insight-section">
+                      <header className="insight-head">
+                        <h4>Fechamento de Round</h4>
+                      </header>
+                      <div className="quick-insights insights-grid-compact">
+                        <article className="insight-card insight-card-survival" data-tip="Top 2 do Time 1 em rounds como ultimo vivo que acabou eliminado; inclui tempo medio e total nessa condicao.">
+                          <p className="dim">Ultimo a morrer (CT)</p>
+                          <h4>{analysis?.last_alive_to_die?.team_ct_start_top2?.length ? 'Top 2' : 'N/A'}</h4>
+                          {topLastAliveRows(analysis?.last_alive_to_die?.team_ct_start_top2).map((row, idx) => (
+                            <p key={`ct-last-${row.steam_id}`}>
+                              {idx + 1}. {formatNick(row.nick)} | {row.last_to_die_rounds}x | medio {formatSeconds(row.avg_solo_time_s)} | total {formatSeconds(row.total_solo_time_s)}
+                            </p>
+                          ))}
+                          {topLastAliveRows(analysis?.last_alive_to_die?.team_ct_start_top2).length === 0 && (
+                            <p>Sem rounds com ultimo CT eliminado</p>
+                          )}
+                        </article>
+                        <article className="insight-card insight-card-survival" data-tip="Top 2 do Time 2 em rounds como ultimo vivo que acabou eliminado; inclui tempo medio e total nessa condicao.">
+                          <p className="dim">Ultimo a morrer (TR)</p>
+                          <h4>{analysis?.last_alive_to_die?.team_t_start_top2?.length ? 'Top 2' : 'N/A'}</h4>
+                          {topLastAliveRows(analysis?.last_alive_to_die?.team_t_start_top2).map((row, idx) => (
+                            <p key={`tr-last-${row.steam_id}`}>
+                              {idx + 1}. {formatNick(row.nick)} | {row.last_to_die_rounds}x | medio {formatSeconds(row.avg_solo_time_s)} | total {formatSeconds(row.total_solo_time_s)}
+                            </p>
+                          ))}
+                          {topLastAliveRows(analysis?.last_alive_to_die?.team_t_start_top2).length === 0 && (
+                            <p>Sem rounds com ultimo TR eliminado</p>
+                          )}
+                        </article>
+                      </div>
+                    </section>
                   </div>
                 ) : (
                   <p className="dim">Sem analise disponivel para esta partida.</p>
@@ -1561,6 +2063,7 @@ async function analyzeMatch(matchRaw) {
 
 export default function Cs2App() {
   const [showIntro, setShowIntro] = useState(true)
+  const [showLanding, setShowLanding] = useState(false)
   const [state, setState] = useState('upload')
   const [error, setError] = useState('')
   const [matchData, setMatchData] = useState(null)
@@ -1651,12 +2154,19 @@ export default function Cs2App() {
         </div>
       </header>
 
-      {state === 'upload' && (
+      {state === 'upload' && showLanding && (
+        <LandingPage onStart={() => setShowLanding(false)} />
+      )}
+
+      {state === 'upload' && !showLanding && (
         <main className="upload card">
           <h2>Envie sua demo real</h2>
           <p>Selecione um arquivo .dem para extrair os dados reais da partida.</p>
           <div className="upload-chooser">
             <input type="file" accept=".dem" onChange={(e) => handleFile(e.target.files?.[0])} />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <button className="btn-secondary" onClick={() => setShowLanding(true)}>Voltar para landing</button>
           </div>
           <div style={{ marginTop: 10 }}>
             <button className="btn-secondary" onClick={handleLoadLocal}>Recarregar JSON da minha partida (teste.dem)</button>
@@ -1698,6 +2208,10 @@ export default function Cs2App() {
     </div>
   )
 }
+
+
+
+
 
 
 

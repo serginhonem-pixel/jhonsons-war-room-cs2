@@ -229,26 +229,30 @@ export function computeLastAliveToDie(match) {
     }
   }
 
-  const pickBest = (side) => {
+  const buildRanking = (side) => {
     const rows = Array.from(sideStats[side].values())
       .sort((a, b) => {
         if (b.last_to_die_rounds !== a.last_to_die_rounds) return b.last_to_die_rounds - a.last_to_die_rounds
         return b.total_solo_time_s - a.total_solo_time_s
       })
-    if (rows.length === 0) return null
-    const best = rows[0]
-    return {
-      steam_id: best.steam_id,
-      nick: best.nick,
-      last_to_die_rounds: best.last_to_die_rounds,
-      total_solo_time_s: Number(best.total_solo_time_s.toFixed(2)),
-      avg_solo_time_s: Number((best.total_solo_time_s / Math.max(best.last_to_die_rounds, 1)).toFixed(2)),
-    }
+      .map((row) => ({
+        steam_id: row.steam_id,
+        nick: row.nick,
+        last_to_die_rounds: row.last_to_die_rounds,
+        total_solo_time_s: Number(row.total_solo_time_s.toFixed(2)),
+        avg_solo_time_s: Number((row.total_solo_time_s / Math.max(row.last_to_die_rounds, 1)).toFixed(2)),
+      }))
+    return rows
   }
 
+  const ctRanking = buildRanking('team_ct_start')
+  const trRanking = buildRanking('team_t_start')
+
   return {
-    team_ct_start: pickBest('team_ct_start'),
-    team_t_start: pickBest('team_t_start'),
+    team_ct_start: ctRanking[0] ?? null,
+    team_t_start: trRanking[0] ?? null,
+    team_ct_start_top2: ctRanking.slice(0, 2),
+    team_t_start_top2: trRanking.slice(0, 2),
   }
 }
 

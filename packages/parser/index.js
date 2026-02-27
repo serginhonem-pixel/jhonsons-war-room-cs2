@@ -225,7 +225,17 @@ function groupEvents(roundEvents, deathEvents, miscEvents = [], roundStartEvents
     const round = ensureRound(roundNumber)
     const endTick = toNumber(pick(event, ['tick', 'event_tick', 'game_time']), 0)
     round.end_tick = Math.max(round.end_tick, endTick)
-    round.winner = normalizeTeam(pick(event, ['winner', 'winning_team', 'winner_team']))
+    round.winner = normalizeTeam(
+      pick(event, [
+        'winner',
+        'winning_team',
+        'winner_team',
+        'winner_team_num',
+        'winner_team_number',
+        'winner_teamid',
+        'team_num',
+      ]),
+    )
     round.win_reason = normalizeReason(pick(event, ['reason', 'win_reason']))
     if (endTick > 0) roundEndBoundaries.push({ roundNumber, endTick })
   }
@@ -496,6 +506,11 @@ export function parseDemoBuffer(buffer, parseFns, fileMeta = {}) {
           'total_rounds_played',
           'reason',
           'winner',
+          'winning_team',
+          'winner_team',
+          'winner_team_num',
+          'winner_team_number',
+          'winner_teamid',
           'weapon',
           'weapon_name',
           'weapon_item',
@@ -544,6 +559,11 @@ export function parseDemoBuffer(buffer, parseFns, fileMeta = {}) {
                 'total_rounds_played',
                 'reason',
                 'winner',
+                'winning_team',
+                'winner_team',
+                'winner_team_num',
+                'winner_team_number',
+                'winner_teamid',
                 'weapon',
                 'weapon_name',
                 'weapon_item',
