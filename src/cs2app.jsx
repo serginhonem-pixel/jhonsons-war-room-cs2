@@ -2021,33 +2021,47 @@ function Dashboard({ data, analysis, onReset }) {
   )
 }
 
-async function uploadAndParseDemo(file) {
-  const usingSameOriginApi = !API_BASE
-  const FOUR_MB = 4 * 1024 * 1024
-  if (usingSameOriginApi && file.size > FOUR_MB) {
-    throw new Error('Arquivo .dem muito grande para o deploy serverless atual. Configure `VITE_API_URL` para uma API dedicada.')
-  }
+async function uploadAndParseDemo(file, onProgress) {
+  onProgress?.({ percent: 4, stage: 'Lendo arquivo .dem no navegador...' })
+  const worker = new Worker(new URL('./workers/demoWorker.js', import.meta.url), { type: 'module' })
+  const buffer = await file.arrayBuffer()
 
-  const body = await file.arrayBuffer()
-  const response = await fetch(apiUrl('/api/parse'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/octet-stream',
-      'X-File-Name': encodeURIComponent(file.name),
-      'X-File-LastModified': String(file.lastModified || 0),
-    },
-    body,
+  return new Promise((resolve, reject) => {
+    const cleanup = () => worker.terminate()
+    worker.onmessage = (event) => {
+      const message = event?.data ?? {}
+      if (message.type === 'progress') {
+        onProgress?.({ percent: message.percent, stage: message.stage })
+        return
+      }
+      if (message.type === 'result') {
+        cleanup()
+        resolve({
+          match: normalizeParsedMatch(message.data),
+          analysis: message.analysis ?? null,
+        })
+        return
+      }
+      if (message.type === 'error') {
+        cleanup()
+        reject(new Error(message.error || 'Falha ao processar demo localmente.'))
+      }
+    }
+    worker.onerror = (err) => {
+      cleanup()
+      reject(new Error(err?.message || 'Falha ao processar demo localmente.'))
+    }
+
+    worker.postMessage(
+      {
+        type: 'parse',
+        fileName: file.name,
+        fileLastModified: String(file.lastModified || 0),
+        buffer,
+      },
+      [buffer],
+    )
   })
-
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) {
-    throw new Error(payload?.error || getApiErrorMessage(response, `Falha ao processar demo no servidor (HTTP ${response.status}).`))
-  }
-  const matchPayload = payload?.match ?? payload
-  return {
-    match: normalizeParsedMatch(matchPayload),
-    analysis: payload?.analysis ?? null,
-  }
 }
 
 async function loadLocalRealMatch() {
@@ -2081,6 +2095,7 @@ export default function Cs2App() {
   const [error, setError] = useState('')
   const [matchData, setMatchData] = useState(null)
   const [analysis, setAnalysis] = useState(null)
+  const [parseProgress, setParseProgress] = useState({ percent: 0, stage: '' })
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2091,16 +2106,22 @@ export default function Cs2App() {
 
   const handleFile = async (file) => {
     if (!file) return
-    if (!file.name.toLowerCase().endsWith('.dem')) {
-      setError('Formato invalido. Envie um arquivo .dem.')
+    if (!file.name.toLowerCase().endsWith('.dem') && !file.name.toLowerCase().endsWith('.dem.bz2') && !file.name.toLowerCase().endsWith('.bz2')) {
+      setError('Formato invalido. Envie arquivo .dem ou .dem.bz2.')
       return
     }
 
     setError('')
     setState('parsing')
+    setParseProgress({ percent: 0, stage: 'Preparando parse local...' })
 
     try {
-      const parsed = await uploadAndParseDemo(file)
+      const parsed = await uploadAndParseDemo(file, ({ percent, stage }) => {
+        setParseProgress({
+          percent: Number.isFinite(Number(percent)) ? Number(percent) : 0,
+          stage: String(stage ?? ''),
+        })
+      })
       setMatchData(parsed.match)
       setAnalysis(parsed.analysis)
       setState('dashboard')
@@ -2174,9 +2195,9 @@ export default function Cs2App() {
       {state === 'upload' && !showLanding && (
         <main className="upload card">
           <h2>Envie sua demo real</h2>
-          <p>Selecione um arquivo .dem para extrair os dados reais da partida.</p>
+          <p>Selecione um arquivo .dem para extrair os dados locais da partida (sem upload).</p>
           <div className="upload-chooser">
-            <input type="file" accept=".dem" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <input type="file" accept=".dem,.bz2,.dem.bz2" onChange={(e) => handleFile(e.target.files?.[0])} />
           </div>
           <div style={{ marginTop: 10 }}>
             <button className="btn-secondary" onClick={() => setShowLanding(true)}>Voltar para landing</button>
@@ -2191,7 +2212,8 @@ export default function Cs2App() {
       {state === 'parsing' && (
         <main className="parsing card">
           <h2>Processando demo...</h2>
-          <p>Lendo header, rounds e eventos da sua partida real.</p>
+          <p>{parseProgress.stage || 'Lendo header, rounds e eventos da sua partida real.'}</p>
+          <p>{Math.max(0, Math.min(100, Math.round(parseProgress.percent || 0)))}%</p>
           <div className="loader" />
         </main>
       )}
