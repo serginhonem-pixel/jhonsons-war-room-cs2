@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url)
 const { parseHeader, parseEvents, parseEvent, parseTicks } = require('@laihoe/demoparser2')
 
 const app = express()
-const port = Number(process.env.API_PORT || 3001)
+const port = Number(process.env.PORT || process.env.API_PORT || 3001)
 const matchStore = new Map()
 
 app.use(cors())
