@@ -8,8 +8,9 @@ const apiUrl = (path) => `${API_BASE}${path}`
 const BETININHO_AVATAR = '/data/betininho.png'
 
 function getApiErrorMessage(response, fallbackMessage) {
+  const url = String(response?.url ?? '/api/parse')
   if (response?.status === 404) {
-    return 'API indisponivel (/api). Rode `npm run dev` para subir web+API local ou configure `VITE_API_URL` em producao.'
+    return `API indisponivel em producao (404 em ${url}). O deploy atual nao publicou a funcao /api/* ou falta configurar VITE_API_URL para uma API dedicada.`
   }
   if (response?.status === 413) {
     return 'Arquivo .dem grande demais para a API serverless atual. Use uma API dedicada (Render/Railway/Fly) em `VITE_API_URL`.'
@@ -2040,7 +2041,7 @@ async function uploadAndParseDemo(file) {
 
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new Error(payload?.error || getApiErrorMessage(response, 'Falha ao processar demo no servidor.'))
+    throw new Error(payload?.error || getApiErrorMessage(response, `Falha ao processar demo no servidor (HTTP ${response.status}).`))
   }
   const matchPayload = payload?.match ?? payload
   return {
