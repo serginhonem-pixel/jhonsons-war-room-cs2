@@ -2011,11 +2011,20 @@ button:hover {
 .killfeed-item.live {
   grid-template-columns: 56px minmax(0, 1fr) fit-content(170px);
   gap: 8px;
+  border: 2px solid #800000;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.75);
+  box-shadow: none;
 }
 
 .killfeed-item.live:hover {
-  border-color: rgba(130, 165, 230, 0.65);
-  background: linear-gradient(180deg, rgba(11, 22, 44, 0.95), rgba(8, 16, 31, 0.95));
+  border-color: #9a0000;
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.killfeed-item.live.selected {
+  border-color: #a40000;
+  box-shadow: none;
 }
 
 .kill-core {
@@ -2101,6 +2110,7 @@ button:hover {
   border-radius: 10px;
   padding: 6px 9px;
   background: rgba(8, 18, 35, 0.82);
+  box-shadow: none;
 }
 
 .feed-system-event.defused {

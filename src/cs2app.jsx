@@ -4,8 +4,25 @@ import PlayersPage from './components/PlayersPage.jsx'
 import LandingPage from './components/LandingPage.jsx'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
-const apiUrl = (path) => `${API_BASE}${path}`
+const DEFAULT_DEV_API_BASE = import.meta.env.DEV && !API_BASE ? 'http://localhost:3001' : ''
+const apiUrl = (path) => `${API_BASE || DEFAULT_DEV_API_BASE}${path}`
 const BETININHO_AVATAR = '/data/betininho.png'
+
+function getResolvedApiTarget(path) {
+  const target = apiUrl(path)
+  if (/^https?:\/\//i.test(target)) return target
+  const origin = globalThis?.location?.origin ?? ''
+  return `${origin}${target}`
+}
+
+function getNetworkFetchError(path) {
+  const target = getResolvedApiTarget(path)
+  const isLocalhost = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
+  const localHint = isLocalhost
+    ? ' Em desenvolvimento local, inicie backend+frontend com `npm run dev` (ou so API com `npm run dev:api`).'
+    : ''
+  return `Falha de rede ao chamar API (${target}). Verifique VITE_API_URL, CORS e se a API esta online.${localHint}`
+}
 
 function getApiErrorMessage(response, fallbackMessage) {
   const url = String(response?.url ?? '/api/parse')
@@ -2064,6 +2081,35 @@ async function uploadAndParseDemo(file, onProgress) {
   })
 }
 
+async function uploadAndParseDemoViaApi(file, onProgress) {
+  onProgress?.({ percent: 56, stage: 'Parser local falhou; tentando parse na API...' })
+  let response
+  try {
+    response = await fetch(apiUrl('/api/parse'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-File-Name': encodeURIComponent(file.name ?? ''),
+        'X-File-LastModified': String(file.lastModified || 0),
+      },
+      body: file,
+    })
+  } catch (error) {
+    throw new Error(`${getNetworkFetchError('/api/parse')} Motivo: ${error?.message ?? 'erro de rede'}`)
+  }
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(payload?.error || getApiErrorMessage(response, 'Falha ao processar demo na API.'))
+  }
+
+  onProgress?.({ percent: 92, stage: 'Parse na API concluido. Montando dashboard...' })
+  return {
+    match: normalizeParsedMatch(payload.match),
+    analysis: payload.analysis ?? null,
+  }
+}
+
 async function loadLocalRealMatch() {
   const response = await fetch('/data/real-match.json')
   if (!response.ok) throw new Error('real-match.json nao encontrado.')
@@ -2075,11 +2121,16 @@ async function loadLocalRealMatch() {
 }
 
 async function analyzeMatch(matchRaw) {
-  const response = await fetch(apiUrl('/api/analyze'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(matchRaw),
-  })
+  let response
+  try {
+    response = await fetch(apiUrl('/api/analyze'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(matchRaw),
+    })
+  } catch (error) {
+    throw new Error(`${getNetworkFetchError('/api/analyze')} Motivo: ${error?.message ?? 'erro de rede'}`)
+  }
 
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
@@ -2116,12 +2167,27 @@ export default function Cs2App() {
     setParseProgress({ percent: 0, stage: 'Preparando parse local...' })
 
     try {
-      const parsed = await uploadAndParseDemo(file, ({ percent, stage }) => {
-        setParseProgress({
-          percent: Number.isFinite(Number(percent)) ? Number(percent) : 0,
-          stage: String(stage ?? ''),
+      let parsed
+      try {
+        parsed = await uploadAndParseDemo(file, ({ percent, stage }) => {
+          setParseProgress({
+            percent: Number.isFinite(Number(percent)) ? Number(percent) : 0,
+            stage: String(stage ?? ''),
+          })
         })
-      })
+      } catch (localErr) {
+        const localMsg = String(localErr?.message ?? '')
+        const shouldTryApiFallback = /OutOfBitsError|Falha ao extrair eventos da demo com demoparser2/i.test(localMsg)
+        if (!shouldTryApiFallback) throw localErr
+
+        parsed = await uploadAndParseDemoViaApi(file, ({ percent, stage }) => {
+          setParseProgress({
+            percent: Number.isFinite(Number(percent)) ? Number(percent) : 0,
+            stage: String(stage ?? ''),
+          })
+        })
+      }
+
       setMatchData(parsed.match)
       setAnalysis(parsed.analysis)
       setState('dashboard')
@@ -2195,7 +2261,7 @@ export default function Cs2App() {
       {state === 'upload' && !showLanding && (
         <main className="upload card">
           <h2>Envie sua demo real</h2>
-          <p>Selecione um arquivo .dem para extrair os dados locais da partida (sem upload).</p>
+          <p>Selecione um arquivo .dem para extrair os dados da partida (local primeiro; fallback API se necessario).</p>
           <div className="upload-chooser">
             <input type="file" accept=".dem,.bz2,.dem.bz2" onChange={(e) => handleFile(e.target.files?.[0])} />
           </div>

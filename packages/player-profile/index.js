@@ -885,11 +885,59 @@ export function getPlayerProfile(match, steamId) {
   const smokeDet = (match.rounds ?? []).flatMap((r) => (r.timeline ?? []).filter((e) => e.event === 'smokegrenade_detonate' && String(e.player_steamid ?? '') === String(steamId)))
   const heDet = (match.rounds ?? []).flatMap((r) => (r.timeline ?? []).filter((e) => e.event === 'hegrenade_detonate' && String(e.player_steamid ?? '') === String(steamId)))
   const mollyDet = (match.rounds ?? []).flatMap((r) => (r.timeline ?? []).filter((e) => e.event === 'inferno_startburn' && String(e.player_steamid ?? '') === String(steamId)))
-  const blindedPlayers = new Set(
-    (match.rounds ?? []).flatMap((r) => (r.timeline ?? [])
-      .filter((e) => e.event === 'player_blind' && String(e.player_steamid ?? '') === String(steamId))
-      .map((e) => String(e.victim_steamid ?? ''))),
-  )
+  const teamStartById = new Map((match?.players ?? []).map((p) => [String(p.steam_id), normalizeTeamKey(p.team)]))
+  const blindedPlayers = new Set()
+  const enemyBlindedPlayers = new Set()
+  const friendlyBlindedPlayers = new Set()
+  for (const round of (match.rounds ?? [])) {
+    const roundTeamById = new Map()
+    for (const ev of (round.timeline ?? [])) {
+      if (ev.event === 'kill') {
+        const killerId = String(ev.killer_steamid ?? '')
+        const victimId = String(ev.victim_steamid ?? '')
+        const killerTeam = normalizeTeamKey(ev.killer_team)
+        const victimTeam = normalizeTeamKey(ev.victim_team)
+        if (killerId && killerTeam !== 'team_unknown') roundTeamById.set(killerId, killerTeam)
+        if (victimId && victimTeam !== 'team_unknown') roundTeamById.set(victimId, victimTeam)
+      }
+      if (ev.event === 'hurt' || ev.event === 'player_blind') {
+        const attackerId = String(ev.attacker_steamid ?? ev.player_steamid ?? '')
+        const victimId = String(ev.victim_steamid ?? '')
+        const attackerTeam = normalizeTeamKey(ev.attacker_team)
+        const victimTeam = normalizeTeamKey(ev.victim_team)
+        if (attackerId && attackerTeam !== 'team_unknown') roundTeamById.set(attackerId, attackerTeam)
+        if (victimId && victimTeam !== 'team_unknown') roundTeamById.set(victimId, victimTeam)
+      }
+    }
+
+    for (const ev of (round.timeline ?? [])) {
+      if (ev.event !== 'player_blind') continue
+      if (String(ev.player_steamid ?? '') !== String(steamId)) continue
+      const victimId = String(ev.victim_steamid ?? '')
+      if (!victimId) continue
+      blindedPlayers.add(victimId)
+
+      const throwerSideFromEvent = normalizeTeamKey(ev.attacker_team)
+      const victimSideFromEvent = normalizeTeamKey(ev.victim_team)
+      const throwerSide = throwerSideFromEvent !== 'team_unknown'
+        ? throwerSideFromEvent
+        : (roundTeamById.get(String(steamId)) ?? 'team_unknown')
+      const throwerSideResolved = throwerSide !== 'team_unknown'
+        ? throwerSide
+        : sideForRound(player.team, round.round_number)
+      const victimStart = teamStartById.get(victimId)
+      const victimSide = victimSideFromEvent !== 'team_unknown'
+        ? victimSideFromEvent
+        : (roundTeamById.get(victimId) ?? 'team_unknown')
+      const victimSideResolved = victimSide !== 'team_unknown'
+        ? victimSide
+        : sideForRound(victimStart, round.round_number)
+      if (victimSideResolved === 'team_unknown') continue
+      if (throwerSideResolved === 'team_unknown') continue
+      if (victimSideResolved === throwerSideResolved) friendlyBlindedPlayers.add(victimId)
+      else enemyBlindedPlayers.add(victimId)
+    }
+  }
 
   const summary = {
     steamId: String(player.steam_id),
@@ -942,6 +990,8 @@ export function getPlayerProfile(match, steamId) {
   const utility = {
     flashesThrown: flashDet.length || toNumber(player.stats?.util_used?.flash, 0),
     playersFlashed: blindedPlayers.size,
+    enemiesFlashed: enemyBlindedPlayers.size,
+    teammatesFlashed: friendlyBlindedPlayers.size,
     flashAssists: toNumber(player.stats?.flash_assists, 0),
     heDamage: hurts
       .filter((e) => String(e.attacker_steamid ?? '') === String(steamId) && String(e.weapon ?? '').toLowerCase().includes('he'))

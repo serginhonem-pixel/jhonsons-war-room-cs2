@@ -6,6 +6,7 @@ import initDemoParserWasm, {
   parseEvent as wasmParseEvent,
   parseTicks as wasmParseTicks,
 } from '@laihoe/demoparser2/wasm/pkg/demoparser2.js'
+import demoParserWasmUrl from '@laihoe/demoparser2/wasm/pkg/demoparser2_bg.wasm?url'
 
 let wasmInitPromise = null
 
@@ -23,7 +24,7 @@ function toUint8(bufferLike) {
 }
 
 async function ensureWasmLoaded() {
-  if (!wasmInitPromise) wasmInitPromise = initDemoParserWasm()
+  if (!wasmInitPromise) wasmInitPromise = initDemoParserWasm(demoParserWasmUrl)
   await wasmInitPromise
 }
 
@@ -110,4 +111,3 @@ self.onmessage = async (event) => {
     self.postMessage({ type: 'error', error: String(error?.message ?? error ?? 'Falha no parse local.') })
   }
 }
-

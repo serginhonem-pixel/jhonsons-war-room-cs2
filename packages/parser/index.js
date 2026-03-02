@@ -48,6 +48,52 @@ export function detectDemoHeader(bytesLike) {
   return 'unknown'
 }
 
+function bytesToAscii(bytes, max = 16) {
+  const chunk = bytes.slice(0, max)
+  let out = ''
+  for (const b of chunk) {
+    if (b >= 32 && b <= 126) out += String.fromCharCode(b)
+    else out += '.'
+  }
+  return out
+}
+
+function bytesToHex(bytes, max = 8) {
+  return Array.from(bytes.slice(0, max)).map((b) => b.toString(16).padStart(2, '0')).join(' ')
+}
+
+function detectContainerHint(bytesLike) {
+  const bytes = bytesLike instanceof Uint8Array ? bytesLike : new Uint8Array(bytesLike)
+  if (bytes.length === 0) return 'empty'
+
+  const ascii = bytesToAscii(bytes, 32).toLowerCase()
+  if (ascii.startsWith('<!doctype') || ascii.startsWith('<html')) return 'html'
+  if (ascii.startsWith('{"') || ascii.startsWith('[{') || ascii.startsWith('{')) return 'json'
+
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) return 'zip'
+  if (bytes[0] === 0x42 && bytes[1] === 0x5a && bytes[2] === 0x68) return 'bzip2'
+  if (bytes[0] === 0x52 && bytes[1] === 0x61 && bytes[2] === 0x72 && bytes[3] === 0x21) return 'rar'
+  if (bytes[0] === 0x37 && bytes[1] === 0x7a && bytes[2] === 0xbc && bytes[3] === 0xaf && bytes[4] === 0x27 && bytes[5] === 0x1c) return '7z'
+  if (bytes[0] === 0xfd && bytes[1] === 0x37 && bytes[2] === 0x7a && bytes[3] === 0x58 && bytes[4] === 0x5a && bytes[5] === 0x00) return 'xz'
+  return 'unknown'
+}
+
+function getUnsupportedFileMessage(buffer, fileMeta = {}) {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)
+  const hint = detectContainerHint(bytes)
+  const hex = bytesToHex(bytes, 8)
+  const ascii = bytesToAscii(bytes, 8)
+  const name = String(fileMeta?.fileName ?? '')
+
+  if (hint === 'empty') return `Arquivo vazio (0 bytes): ${name || 'sem nome'}`
+  if (hint === 'html') return `Arquivo nao e demo CS2 (parece HTML). Verifique se baixou a demo real. Assinatura: ${ascii} | hex: ${hex}`
+  if (hint === 'json') return `Arquivo JSON detectado. Envie um arquivo .dem bruto do CS2. Assinatura: ${ascii} | hex: ${hex}`
+  if (hint === 'zip') return `Arquivo ZIP detectado. Extraia e envie o .dem. Assinatura hex: ${hex}`
+  if (hint === 'bzip2') return 'Arquivo BZ2 detectado apos leitura. Selecione .dem ou .dem.bz2 valido.'
+  if (hint === 'rar' || hint === '7z' || hint === 'xz') return `Arquivo compactado (${hint}) detectado. Extraia e envie o .dem. Assinatura hex: ${hex}`
+  return `Nao foi possivel ler esta demo. Assinatura inicial: "${ascii}" (hex: ${hex}). Pode estar incompleta/corrompida ou em formato nao suportado.`
+}
+
 function mapBuyTier(equipValue) {
   if (equipValue <= 12000) return 'eco'
   if (equipValue <= 20000) return 'half'
@@ -315,11 +361,15 @@ function groupEvents(roundEvents, deathEvents, miscEvents = [], roundStartEvents
     if (eventType === 'hurt') {
       baseEvent.attacker_steamid = String(pick(event, ['attacker_steamid', 'attacker']) ?? '')
       baseEvent.victim_steamid = String(pick(event, ['user_steamid', 'victim_steamid', 'userid']) ?? '')
+      baseEvent.attacker_team = normalizeTeam(pick(event, ['attacker_team_num', 'attacker_team']))
+      baseEvent.victim_team = normalizeTeam(pick(event, ['user_team_num', 'victim_team', 'victim_team_num', 'team_num']))
       baseEvent.damage = toNumber(pick(event, ['dmg_health', 'health_damage', 'damage', 'dmg']), 0)
     }
     if (eventType === 'player_blind') {
       baseEvent.player_steamid = String(pick(event, ['attacker_steamid', 'attacker']) ?? baseEvent.player_steamid ?? '')
       baseEvent.victim_steamid = String(pick(event, ['user_steamid', 'userid', 'victim_steamid']) ?? '')
+      baseEvent.attacker_team = normalizeTeam(pick(event, ['attacker_team_num', 'attacker_team']))
+      baseEvent.victim_team = normalizeTeam(pick(event, ['user_team_num', 'victim_team', 'victim_team_num', 'team_num', 'player_team']))
       baseEvent.blind_duration = toNumber(pick(event, ['blind_duration', 'blind_duration_s']), 0)
     }
     round.timeline.push(baseEvent)
@@ -473,117 +523,107 @@ export function parseDemoBuffer(buffer, parseFns, fileMeta = {}) {
   const format = detectDemoHeader(buffer)
   if (format === 'gzip') throw new Error('Arquivo compactado (.gz). Extraia antes de enviar.')
   if (format === 'csgo') throw new Error('Demo de CS:GO detectada (HL2DEMO). Envie demo de CS2.')
+  if (format === 'unknown') throw new Error(getUnsupportedFileMessage(buffer, fileMeta))
 
   let header = {}
   try { header = parseHeader(buffer) ?? {} } catch { header = {} }
 
+  const eventNames = [
+    'round_start',
+    'round_freeze_end',
+    'round_end',
+    'player_death',
+    'player_hurt',
+    'weapon_fire',
+    'bomb_planted',
+    'bomb_defused',
+    'item_purchase',
+    'item_drop',
+    'item_pickup',
+    'flashbang_detonate',
+    'smokegrenade_detonate',
+    'hegrenade_detonate',
+    'inferno_startburn',
+    'player_blind',
+  ]
+  const wantedPlayerProps = ['team_num', 'name', 'steamid']
+  const wantedOtherProps = [
+    'round',
+    'total_rounds_played',
+    'reason',
+    'winner',
+    'winning_team',
+    'winner_team',
+    'winner_team_num',
+    'winner_team_number',
+    'winner_teamid',
+    'weapon',
+    'weapon_name',
+    'weapon_item',
+    'item_name',
+    'item',
+    'attacker_weapon',
+    'attacker_team',
+    'attacker_team_num',
+    'victim_team',
+    'victim_team_num',
+    'user_team',
+    'user_team_num',
+    'player_team',
+    'team_num',
+    'headshot',
+    'is_headshot',
+    'dmg_health',
+    'health_damage',
+    'damage',
+    'dmg',
+    'blind_duration',
+  ]
+
   let allEvents = []
+  let parseEventsRootError = null
   try {
-    allEvents = normalizeEvents(
-      parseEvents(
-        buffer,
-        [
-          'round_start',
-          'round_freeze_end',
-          'round_end',
-          'player_death',
-          'player_hurt',
-          'weapon_fire',
-          'bomb_planted',
-          'bomb_defused',
-          'item_purchase',
-          'item_drop',
-          'item_pickup',
-          'flashbang_detonate',
-          'smokegrenade_detonate',
-          'hegrenade_detonate',
-          'inferno_startburn',
-          'player_blind',
-        ],
-        ['team_num', 'name', 'steamid'],
-        [
-          'round',
-          'total_rounds_played',
-          'reason',
-          'winner',
-          'winning_team',
-          'winner_team',
-          'winner_team_num',
-          'winner_team_number',
-          'winner_teamid',
-          'weapon',
-          'weapon_name',
-          'weapon_item',
-          'item_name',
-          'item',
-          'attacker_weapon',
-          'headshot',
-          'is_headshot',
-          'dmg_health',
-          'health_damage',
-          'damage',
-          'dmg',
-          'blind_duration',
-        ],
-      ),
-    )
+    allEvents = normalizeEvents(parseEvents(buffer, eventNames, wantedPlayerProps, wantedOtherProps))
   } catch {
-    const fallback = []
-    for (const eventName of [
-      'round_start',
-      'round_freeze_end',
-      'round_end',
-      'player_death',
-      'player_hurt',
-      'weapon_fire',
-      'bomb_planted',
-      'bomb_defused',
-      'item_purchase',
-      'item_drop',
-      'item_pickup',
-      'flashbang_detonate',
-      'smokegrenade_detonate',
-      'hegrenade_detonate',
-      'inferno_startburn',
-      'player_blind',
-    ]) {
-      try {
-        fallback.push(
-          ...normalizeEvents(
-            parseEvent(
-              buffer,
-              eventName,
-              ['team_num', 'name', 'steamid'],
-              [
-                'round',
-                'total_rounds_played',
-                'reason',
-                'winner',
-                'winning_team',
-                'winner_team',
-                'winner_team_num',
-                'winner_team_number',
-                'winner_teamid',
-                'weapon',
-                'weapon_name',
-                'weapon_item',
-                'item_name',
-                'item',
-                'attacker_weapon',
-                'headshot',
-                'is_headshot',
-                'dmg_health',
-                'health_damage',
-                'damage',
-                'dmg',
-                'blind_duration',
-              ],
-            ),
-          ),
-        )
-      } catch { /* noop */ }
+    try {
+      allEvents = normalizeEvents(parseEvents(buffer, eventNames))
+    } catch (error) {
+      parseEventsRootError = error
+      const fallback = []
+      for (const eventName of eventNames) {
+        let parsedRows = null
+        let parsedError = null
+        try {
+          parsedRows = parseEvent(buffer, eventName, wantedPlayerProps, wantedOtherProps)
+        } catch (errorWithProps) {
+          parsedError = errorWithProps
+        }
+        if (!parsedRows) {
+          try {
+            parsedRows = parseEvent(buffer, eventName)
+          } catch (errorNoProps) {
+            parsedError = errorNoProps
+          }
+        }
+        if (parsedRows) {
+          fallback.push(...normalizeEvents(parsedRows))
+        } else if (!parseEventsRootError && parsedError) {
+          parseEventsRootError = parsedError
+        }
+      }
+      allEvents = fallback
     }
-    allEvents = fallback
+  }
+
+  if (allEvents.length === 0 && parseEventsRootError) {
+    const raw = String(parseEventsRootError?.message ?? parseEventsRootError ?? '').trim()
+    if (raw) {
+      try {
+        throw new Error(`Falha ao extrair eventos da demo com demoparser2: ${raw}`)
+      } catch (error) {
+        throw error
+      }
+    }
   }
 
   const rounds = groupEvents(
@@ -621,7 +661,7 @@ export function parseDemoBuffer(buffer, parseFns, fileMeta = {}) {
   const players = buildPlayersFromRounds(rounds, tickRows)
   const score = fillEconomy(rounds)
   if (Object.keys(header).length === 0 && rounds.length === 0 && players.length === 0) {
-    throw new Error('Nao foi possivel ler esta demo. Pode estar incompleta/corrompida ou em formato nao suportado.')
+    throw new Error(getUnsupportedFileMessage(buffer, fileMeta))
   }
 
   const playedAt = fileMeta.fileLastModified > 0 ? new Date(fileMeta.fileLastModified).toISOString() : new Date().toISOString()
